@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+<!-- Load d3.js -->
+<script src="https://d3js.org/d3.v4.min.js"></script>
+
+<!-- Create a div where the graph will take place -->
+<div id="my_dataviz"></div>
+
+<script>
+  // Set larger dimensions
+  var width = 1200;
+  var height = 800;
+
+  // Append SVG object
+  var svg = d3
+    .select("#my_dataviz")
+    .append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  // Dummy hierarchical data for IoT
+  var data = {
+    name: "IoT",
+    children: [
+      {
+        name: "Sensors",
+        children: [
+          { name: "Temperature", value: 100 },
+          { name: "Humidity", value: 80 },
+          { name: "Light", value: 60 },
+        ],
+      },
+      {
+        name: "Devices",
+        children: [
+          { name: "Smartphone", value: 200 },
+          { name: "Smartwatch", value: 150 },
+        ],
+      },
+      {
+        name: "Gateways",
+        children: [
+          { name: "WiFi Router", value: 120 },
+          { name: "Hub", value: 100 },
+        ],
+      },
+    ],
+  };
+
+  // Create a hierarchical structure
+  var root = d3
+    .hierarchy(data)
+    .sum(function (d) {
+      return d.value;
+    })
+    .sort(function (a, b) {
+      return b.value - a.value;
+    });
+
+  // Create a pack layout
+  d3.pack()
+    .size([width, height])
+    .padding(20)(root);
+
+  // Add nodes as circles
+  var nodes = svg
+    .selectAll("circle")
+    .data(root.descendants())
+    .enter()
+    .append("circle")
+    .attr("cx", function (d) {
+      return d.x;
+    })
+    .attr("cy", function (d) {
+      return d.y;
+    })
+    .attr("r", 0) // Start with radius 0 for animation
+    .style("fill", function (d) {
+      return d.children ? "#69b3a2" : "#404040";
+    })
+    .style("stroke", "black")
+    .style("stroke-width", 1.5)
+    .transition() // Add a transition for the radius
+    .duration(1000)
+    .attr("r", function (d) {
+      return d.r;
+    });
+
+  // Add labels to nodes
+  svg
+    .selectAll("text")
+    .data(root.descendants())
+    .enter()
+    .append("text")
+    .attr("x", function (d) {
+      return d.x;
+    })
+    .attr("y", function (d) {
+      return d.y;
+    })
+    .text(function (d) {
+      return d.children ? "" : d.data.name;
+    })
+    .attr("text-anchor", "middle")
+    .style("opacity", 0) // Start with invisible labels
+    .style("font-size", "16px")
+    .style("fill", "black")
+    .transition() // Add a transition for the labels
+    .delay(1000) // Delay until the circles have fully grown
+    .duration(500)
+    .style("opacity", 1);
+
+  // Add labels for parent nodes (categories)
+  svg
+    .selectAll(".parent-label")
+    .data(root.descendants().filter(function (d) {
+      return d.children && d.depth === 1; // Filter for second-level nodes
+    }))
+    .enter()
+    .append("text")
+    .attr("x", function (d) {
+      return d.x;
+    })
+    .attr("y", function (d) {
+      return d.y - d.r - 10; // Offset label above the circle
+    })
+    .text(function (d) {
+      return d.data.name;
+    })
+    .attr("text-anchor", "middle")
+    .style("opacity", 0) // Start with invisible parent labels
+    .style("font-size", "18px")
+    .style("font-weight", "bold")
+    .style("fill", "#333")
+    .transition()
+    .delay(1000)
+    .duration(500)
+    .style("opacity", 1);
+</script>

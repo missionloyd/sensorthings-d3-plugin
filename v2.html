@@ -1,0 +1,269 @@
+<!-- python -m http.server 8000 -->
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+  /* Style for the tooltip */
+  .tooltip {
+    position: absolute;
+    text-align: center;
+    width: auto;
+    max-width: 300px; /* Adjust as needed */
+    padding: 6px;
+    font: 12px sans-serif;
+    background: lightsteelblue;
+    border: 0px;
+    border-radius: 8px;
+    pointer-events: none;
+    word-wrap: break-word; /* Allow text to wrap */
+  }
+
+  /* Styles for nodes and labels */
+  .node {
+    cursor: pointer;
+  }
+
+  .node:hover {
+    stroke: #000;
+    stroke-width: 1.5px;
+  }
+
+  .label {
+    font: 11px "Helvetica Neue", Helvetica, Arial, sans-serif;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+</style>
+
+<!-- Load d3.js -->
+<script src="https://d3js.org/d3.v4.min.js"></script>
+
+<!-- Create a div where the graph will take place -->
+<div id="my_dataviz"></div>
+
+<script>
+  // Set dimensions based on window size for responsiveness
+  var width = window.innerWidth;
+  var height = window.innerHeight;
+  var margin = 20;
+
+  // Append SVG object
+  var svg = d3
+    .select("#my_dataviz")
+    .append("svg")
+    .attr("width", '100%')
+    .attr("height", '100%')
+    .attr('viewBox', '0 0 ' + width + ' ' + height)
+    .attr('preserveAspectRatio', 'xMidYMid meet');
+
+  // Append group element
+  var g = svg.append("g")
+    .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")");
+
+  // Create a pack layout
+  var pack = d3.pack()
+    .size([width - margin * 2, height - margin * 2])
+    .padding(6);
+
+  // Create a color scale (optional for other nodes)
+  var color = d3.scaleLinear()
+    .domain([-1, 5])
+    .range(["#87CEEB", "#4682B4"])
+    .interpolate(d3.interpolateHcl);
+
+  // Create a tooltip div
+  var tooltip = d3.select("#my_dataviz")
+    .append("div")
+    .attr("class", "tooltip")
+    .style("opacity", 0);
+
+  // Load data from JSON file
+  d3.json("things_tree.json", function(error, data) {
+    if (error) throw error;
+
+    // Transform data into hierarchical structure
+    function buildHierarchy(data) {
+      return {
+        name: "Things",
+        type: "root",
+        children: data.map(function(thing) {
+          var thingNode = {
+            name: thing.name,
+            type: "Thing",
+            active: thing.properties.active, // Include 'active' property
+            description: thing.description,
+            properties: thing.properties,
+            restricted: thing.restricted,
+            children: []
+          };
+
+          // Add Datastreams as children
+          if (thing.Datastreams && thing.Datastreams.length > 0) {
+            thingNode.children.push({
+              name: "Datastreams",
+              type: "DatastreamsGroup",
+              children: thing.Datastreams.map(function(ds) {
+                return {
+                  name: ds.name,
+                  type: "Datastream",
+                  id: ds["@iot.id"],
+                  description: ds.description,
+                  unitOfMeasurement: ds.unitOfMeasurement,
+                  properties: ds.properties,
+                  restricted: ds.restricted,
+                  value: 1
+                };
+              })
+            });
+          }
+
+          // Add other entities as needed...
+
+          return thingNode;
+        })
+      };
+    }
+
+    var rootData = buildHierarchy(data);
+
+    // Create a hierarchical structure
+    var root = d3.hierarchy(rootData)
+      .sum(function(d) { return d.value || 1; })
+      .sort(function(a, b) { return b.value - a.value; });
+
+    var focus = root,
+        nodes = pack(root).descendants(),
+        view;
+
+    // Add nodes as circles
+    var circle = g.selectAll("circle")
+      .data(nodes)
+      .enter().append("circle")
+        .attr("class", function(d) {
+          return d.parent ? d.children ? "node" : "node node--leaf" : "node node--root";
+        })
+        .style("fill", function(d) {
+          // Color based on 'active' status for 'Thing' nodes
+          if (d.data.type === "Thing") {
+            return d.data.active ? "#77dd77" : "#ff6961";
+          } else {
+            return d.children ? color(d.depth) : "#bbb";
+          }
+        })
+        .on("click", function(d) {
+          if (focus !== d) {
+            zoom(d);
+            d3.event.stopPropagation();
+          }
+        })
+        .on('mouseover', function(d) {
+          tooltip.transition()
+            .duration(200)
+            .style('opacity', .9);
+          tooltip.html(getTooltipContent(d.data))
+            .style('left', (d3.event.pageX + 10) + 'px')
+            .style('top', (d3.event.pageY - 28) + 'px');
+        })
+        .on('mouseout', function(d) {
+          tooltip.transition()
+            .duration(500)
+            .style('opacity', 0);
+        });
+
+    // Add labels to nodes
+    var text = g.selectAll("text")
+      .data(nodes)
+      .enter().append("text")
+        .attr("class", "label")
+        .style("fill-opacity", function(d) {
+          return d.parent === root ? 1 : 0;
+        })
+        .style("display", function(d) {
+          return d.parent === root ? "inline" : "none";
+        })
+        .text(function(d) { return d.data.name; });
+
+    var node = g.selectAll("circle,text");
+
+    // Add zoom behavior on background
+    svg
+        .on("click", function() { zoom(root); });
+
+    // Adjusted zoom level to make visualization more zoomed out
+    zoomTo([root.x, root.y, root.r * 4 + margin]); // Changed from root.r * 2 to root.r * 4
+
+    // Zoom function
+    function zoom(d) {
+      var focus0 = focus; focus = d;
+
+      var transition = d3.transition()
+          .duration(d3.event.altKey ? 7500 : 750)
+          .tween("zoom", function(d) {
+            var i = d3.interpolateZoom(view, [focus.x, focus.y, focus.r * 2 + margin]);
+            return function(t) { zoomTo(i(t)); };
+          });
+
+      transition.selectAll(".label")
+        .filter(function(d) { return d.parent === focus || this.style.display === "inline"; })
+          .style("fill-opacity", function(d) { return d.parent === focus ? 1 : 0; })
+          .on("start", function(d) { if (d.parent === focus) this.style.display = "inline"; })
+          .on("end", function(d) { if (d.parent !== focus) this.style.display = "none"; });
+    }
+
+    // Adjust view
+    function zoomTo(v) {
+      var k = width / v[2]; view = v;
+      node.attr("transform", function(d) {
+        return "translate(" + (d.x - v[0]) * k + "," + (d.y - v[1]) * k + ")";
+      });
+      circle.attr("r", function(d) { return d.r * k; });
+    }
+
+    // Handle window resize for responsiveness
+    window.addEventListener('resize', function() {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      svg.attr('viewBox', '0 0 ' + width + ' ' + height);
+      pack.size([width - margin * 2, height - margin * 2]);
+      nodes = pack(root).descendants();
+      zoomTo(view);
+    });
+
+    // Function to generate tooltip content
+    function getTooltipContent(data) {
+      var content = "";
+      if (data.type === "Thing") {
+        content += "<strong>Thing: " + data.name + "</strong><br/>";
+        if (data.description) {
+          content += "Description: " + data.description + "<br/>";
+        }
+        if (data.active !== undefined) {
+          content += "Active: " + data.active + "<br/>";
+        }
+        if (data.properties) {
+          for (var key in data.properties) {
+            content += key + ": " + data.properties[key] + "<br/>";
+          }
+        }
+      } else if (data.type === "Datastream") {
+        content += "<strong>Datastream: " + data.name + "</strong><br/>";
+        if (data.description) {
+          content += "Description: " + data.description + "<br/>";
+        }
+        if (data.unitOfMeasurement) {
+          content += "Unit: " + data.unitOfMeasurement.symbol + "<br/>";
+        }
+        if (data.properties) {
+          for (var key in data.properties) {
+            content += key + ": " + data.properties[key] + "<br/>";
+          }
+        }
+      } else if (data.type === "DatastreamsGroup") {
+        content += "<strong>" + data.name + "</strong>";
+      } else {
+        content += data.name;
+      }
+      return content;
+    }
+
+  });
+</script>
