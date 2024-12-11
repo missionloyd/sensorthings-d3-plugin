@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leaflet Plugin with Detailed Popups</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+  <style>
+    #map {
+      height: 100vh;
+    }
+
+    .leaflet-popup-content {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .leaflet-tooltip {
+      background: lightsteelblue;
+      border-radius: 8px;
+      padding: 6px;
+      font-size: 12px;
+    }
+
+    /* Style for the content in the popup */
+    .popup-content {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .popup-header {
+      font-weight: bold;
+    }
+
+    .popup-detail {
+      font-size: 13px;
+    }
+
+    .popup-label {
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <script src="https://d3js.org/d3.v4.min.js"></script>
+  
+  <script>
+    // Initialize the map
+    var map = L.map('map').setView([51.505, -0.09], 2);
+
+    // Set up tile layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Fetch the data for Things from the URL
+    fetch('https://raw.githubusercontent.com/missionloyd/sensorthings-d3-plugin/refs/heads/main/things_tree.json')
+      .then(response => response.json())
+      .then(data => {
+        // Process each "Thing" and add it to the map
+        data.forEach(thing => {
+          if (thing.Locations && thing.Locations.length > 0) {
+            // Assuming the first location in the array is the primary location for the marker
+            var location = thing.Locations[0].location.coordinates;
+            var lat = location[1];  // Latitude (second in array)
+            var lon = location[0];  // Longitude (first in array)
+
+            // Set the color based on the "active" property
+            var markerColor = thing.properties.active ? "#77dd77" : "#ff6961"; 
+
+            // Create a marker for each "Thing" at the given location
+            var marker = L.circleMarker([lat, lon], {
+              color: markerColor,
+              radius: 10
+            }).addTo(map);
+
+            // Create the popup content with more details
+            var popupContent = `
+              <div class="popup-content">
+                <div class="popup-header">${thing.name}</div>
+                <div class="popup-detail">
+                  <div><span class="popup-label">Description:</span> ${thing.description || 'No description available'}</div>
+                  <div><span class="popup-label">Active:</span> ${thing.properties.active ? 'Yes' : 'No'}</div>
+                  <div><span class="popup-label">Host:</span> ${thing.properties.hostName || 'N/A'}</div>
+                  <div><span class="popup-label">Project:</span> ${thing.Projects && thing.Projects.length > 0 ? thing.Projects[0].name : 'No project assigned'}</div>
+                  <div><span class="popup-label">Location:</span> ${thing.Locations[0].name || 'Unknown'}</div>
+                </div>
+              </div>
+            `;
+
+            // Bind the popup to the marker
+            marker.bindPopup(popupContent);
+
+            // Add tooltip on hover (permanent with the name of the Thing)
+            marker.bindTooltip(`${thing.name}`, { permanent: true, direction: 'right' });
+          }
+        });
+      })
+      .catch(error => console.error('Error loading things data:', error));
+  </script>
+</body>
+</html>
