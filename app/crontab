@@ -1,0 +1,2 @@
+# run cronjob every hour
+0 * * * * /app/run.sh

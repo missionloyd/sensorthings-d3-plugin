@@ -1,0 +1,31 @@
+FROM python:3.10
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+  && apt-get -y install gcc make \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN python3 --version
+RUN pip3 --version
+RUN pip install --no-cache-dir --upgrade pip
+
+RUN apt-get update -y \
+  && apt-get install --no-install-recommends --no-install-suggests -y tzdata ca-certificates sudo bzip2 curl wget libc-dev libxt6 cron vim
+
+ENV TZ="UTC"
+
+# run the crontab file
+COPY crontab /etc/cron.d/crontab
+RUN chmod 0644 /etc/cron.d/crontab
+RUN /usr/bin/crontab /etc/cron.d/crontab
+RUN echo $PYTHONPATH
+
+# set working directory
+WORKDIR /app
+# COPY ./requirements.txt /app/requirements.txt
+# RUN pip3 install --no-cache-dir -r requirements.txt
+COPY . .
+
+# EXPOSE 8000
+
+CMD ["cron", "-f"]

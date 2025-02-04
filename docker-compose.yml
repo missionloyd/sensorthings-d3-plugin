@@ -1,0 +1,17 @@
+services:
+  sensorthings-d3-plugin-server:
+    container_name: sensorthings-d3-plugin-server
+    restart: always
+    build: 
+      context: ./app
+      dockerfile: Dockerfile.server
+    ports:
+      - "8080:8080"
+  sensorthings-d3-plugin-cron:
+    container_name: sensorthings-d3-plugin-cron
+    restart: always
+    build: 
+      context: ./app
+      dockerfile: Dockerfile.cron
+    volumes:
+      - ./app/things_tree.json:/app/things_tree.json
