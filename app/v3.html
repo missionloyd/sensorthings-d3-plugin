@@ -59,7 +59,7 @@
     }).addTo(map);
 
     // Fetch the data for Things from the URL
-    fetch('https://raw.githubusercontent.com/missionloyd/sensorthings-d3-plugin/refs/heads/main/things_tree.json')
+    fetch('https://raw.githubusercontent.com/missionloyd/sensorthings-d3-plugin/refs/heads/main/app/things_tree.json')
       .then(response => response.json())
       .then(data => {
         // Process each "Thing" and add it to the map
