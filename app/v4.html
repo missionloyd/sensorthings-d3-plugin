@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sensor Tiles with Search</title>
+  <style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: sans-serif;
+  }
+  /* Search bar styles (similar to previous implementation) */
+  #search-container {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 9999;
+    background: white;
+    padding: 6px;
+    border-radius: 4px;
+    width: 250px;
+    box-shadow: 0 0 6px rgba(0,0,0,0.15);
+  }
+  #search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px;
+  }
+  #search-results {
+    margin-top: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    display: none;
+  }
+  .search-item {
+    padding: 4px;
+    cursor: pointer;
+    border-bottom: 1px solid #ddd;
+  }
+  .search-item:hover {
+    background: #f0f0f0;
+  }
+
+  /* Container for all things */
+  #things-container {
+    margin-top: 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+  }
+  .thing-tile {
+    border: 2px solid #ccc;
+    border-radius: 6px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .thing-tile.active {
+    border-color: #007bff;
+  }
+  .thing-tile.inactive {
+    border-color: #ff6961;
+  }
+  .tile-header {
+    font-weight: bold;
+    font-size: 16px;
+  }
+  .tile-detail {
+    font-size: 14px;
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .popup-label {
+    font-weight: bold;
+  }
+  .datastreams-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .graph-container {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 6px;
+    width: 300px;
+    max-width: 300px;
+  }
+  .graph-container > svg {
+    margin-top: 8px;
+  }
+  .refresh-button {
+    width: 120px;
+    padding: 4px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  </style>
+</head>
+<body>
+  <div id="search-container">
+    <input
+      type="text"
+      id="search-input"
+      placeholder="Search name or description..."
+    />
+    <div id="search-results"></div>
+  </div>
+
+  <div id="things-container"></div>
+
+  <script src="https://d3js.org/d3.v4.min.js"></script>
+  <script>
+  var allThings = [];
+  var tileById = {};
+
+  function drawGraph(containerId, data, datastreamName, unitSymbol) {
+    var containerElem = document.getElementById(containerId);
+    containerElem.innerHTML = '';
+
+    var containerWidth = containerElem.clientWidth - 50;
+    var margin = { top: 10, right: 30, bottom: 30, left: 55 },
+      width = containerWidth - margin.left - margin.right,
+      height = 150 - margin.top - margin.bottom;
+
+    var parsedData = data
+      .map(function(d) {
+        return {
+          date: new Date(d.phenomenonTime),
+          value: +d.result
+        };
+      })
+      .sort(function(a, b) {
+        return a.date - b.date;
+      });
+
+    var svg = d3
+      .select('#' + containerId)
+      .append('svg')
+      .attr('width', width + margin.left + margin.right)
+      .attr('height', height + margin.top + margin.bottom)
+      .append('g')
+      .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+
+    var x = d3
+      .scaleTime()
+      .domain(d3.extent(parsedData, function(d) { return d.date; }))
+      .range([0, width]);
+
+    var dateDomain = x.domain();
+    var formatDate = d3.timeFormat('%m/%d/%Y');
+    var dateRangeLabel = 'Time (' + formatDate(dateDomain[0]) + ' - ' + formatDate(dateDomain[1]) + ')';
+
+    var xAxis = svg
+      .append('g')
+      .attr('transform', 'translate(0,' + height + ')')
+      .call(d3.axisBottom(x).ticks(4));
+
+    xAxis
+      .append('text')
+      .attr('fill', 'black')
+      .attr('x', width / 2)
+      .attr('y', margin.bottom)
+      .style('text-anchor', 'middle')
+      .text(dateRangeLabel);
+
+    var y = d3
+      .scaleLinear()
+      .domain([
+        d3.min(parsedData, function(d) { return d.value; }),
+        d3.max(parsedData, function(d) { return d.value; })
+      ])
+      .range([height, 0]);
+
+    var yAxis = svg.append('g').call(d3.axisLeft(y).ticks(4));
+
+    yAxis
+      .append('text')
+      .attr('fill', 'black')
+      .attr('transform', 'rotate(-90)')
+      .attr('y', -45)
+      .attr('x', -height / 2)
+      .style('text-anchor', 'middle')
+      .text(unitSymbol);
+
+    var line = d3
+      .line()
+      .x(function(d) { return x(d.date); })
+      .y(function(d) { return y(d.value); });
+
+    svg
+      .append('path')
+      .datum(parsedData)
+      .attr('fill', 'none')
+      .attr('stroke', '#0074D9')
+      .attr('stroke-width', 1.5)
+      .attr('d', line);
+
+    d3
+      .select('#' + containerId)
+      .insert('div', ':first-child')
+      .style('font-size', '12px')
+      .style('font-weight', 'bold')
+      .text(datastreamName);
+  }
+
+  var thingsEndpoint = 'https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things?$expand=Locations,Datastreams';
+  var thingsContainer = document.getElementById('things-container');
+
+  function loadDatastreamsIntoTile(thing, datastreamsContainer) {
+    datastreamsContainer.innerHTML = '';
+    if (thing.Datastreams && thing.Datastreams.length > 0) {
+      thing.Datastreams.forEach(function(ds) {
+        var graphDiv = document.createElement('div');
+        graphDiv.classList.add('graph-container');
+        var graphDivId = 'graph-container-' + thing['@iot.id'] + '-' + ds['@iot.id'];
+        graphDiv.setAttribute('id', graphDivId);
+        datastreamsContainer.appendChild(graphDiv);
+
+        var obsUrl = 'https://wyseason.uwyo.edu/sta/v1.1/Datastreams(' + ds['@iot.id'] + ')/Observations?$orderby=phenomenonTime asc';
+        fetch(obsUrl)
+          .then(function(resp) { return resp.json(); })
+          .then(function(obsJson) {
+            var obsData = obsJson.value || [];
+            if (obsData.length > 0) {
+              var maxTime = new Date(obsData[obsData.length - 1].phenomenonTime);
+              var cutoff = new Date(maxTime.getTime() - 24 * 60 * 60 * 1000);
+              var recentObs = obsData.filter(function(o) {
+                return new Date(o.phenomenonTime) >= cutoff;
+              });
+              if (recentObs.length > 0) {
+                var symbol = (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
+                var dsName = ds.name || 'Unknown';
+                drawGraph(graphDivId, recentObs, dsName, symbol);
+              }
+            }
+          })
+          .catch(function(err) {
+            console.error('Error fetching observations:', err);
+          });
+      });
+    }
+  }
+
+  function fetchAndRenderThings() {
+    fetch(thingsEndpoint)
+      .then(function(response) {
+        return response.json();
+      })
+      .then(function(jsonData) {
+        var data = jsonData.value || [];
+        allThings = data;
+        tileById = {};
+        thingsContainer.innerHTML = '';
+
+        data.forEach(function(thing) {
+          var tile = document.createElement('div');
+          tile.classList.add('thing-tile');
+          tile.classList.add(thing.properties.active ? 'active' : 'inactive');
+
+          var header = document.createElement('div');
+          header.classList.add('tile-header');
+          header.textContent = thing.name;
+
+          var detail = document.createElement('div');
+          detail.classList.add('tile-detail');
+          detail.innerHTML =
+            '<div><span class="popup-label">Active:</span> ' +
+            (thing.properties.active ? 'Yes' : 'No') +
+            '</div>' +
+            '<div><span class="popup-label">Location:</span> ' +
+            ((thing.Locations && thing.Locations[0] && thing.Locations[0].name) || 'Unknown') +
+            '</div>' +
+            '<div><span class="popup-label">Host:</span> ' +
+            (thing.properties.hostName || 'N/A') +
+            '</div>' +
+            '<div><span class="popup-label">Description:</span> ' +
+            (thing.description || 'No description available') +
+            '</div>';
+
+          var refreshBtn = document.createElement('button');
+          refreshBtn.classList.add('refresh-button');
+          refreshBtn.textContent = 'Refresh Data';
+
+          var datastreamsContainer = document.createElement('div');
+          datastreamsContainer.classList.add('datastreams-container');
+
+          loadDatastreamsIntoTile(thing, datastreamsContainer);
+
+          refreshBtn.addEventListener('click', function() {
+            loadDatastreamsIntoTile(thing, datastreamsContainer);
+          });
+
+          tile.appendChild(header);
+          tile.appendChild(detail);
+          tile.appendChild(refreshBtn);
+          tile.appendChild(datastreamsContainer);
+
+          thingsContainer.appendChild(tile);
+          tileById[thing['@iot.id']] = tile;
+        });
+      })
+      .catch(function(error) {
+        console.error('Error loading things data:', error);
+      });
+  }
+
+  fetchAndRenderThings();
+
+  var searchInput = document.getElementById('search-input');
+  var searchResults = document.getElementById('search-results');
+
+  searchInput.addEventListener('input', function() {
+    var query = this.value.toLowerCase().trim();
+    if (!query) {
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+      return;
+    }
+
+    var filtered = allThings.filter(function(thing) {
+      var nameMatch = thing.name && thing.name.toLowerCase().includes(query);
+      var descMatch = thing.description && thing.description.toLowerCase().includes(query);
+      return nameMatch || descMatch;
+    });
+
+    if (!filtered.length) {
+      searchResults.innerHTML = '<div class="search-item">No matches found</div>';
+      searchResults.style.display = 'block';
+    } else {
+      var itemsHtml = filtered
+        .map(function(t) {
+          return (
+            '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
+              (t.name || 'No name') +
+            '</div>'
+          );
+        })
+        .join('');
+      searchResults.innerHTML = itemsHtml;
+      searchResults.style.display = 'block';
+    }
+  });
+
+  searchResults.addEventListener('click', function(e) {
+    if (e.target && e.target.classList.contains('search-item')) {
+      var thingId = e.target.getAttribute('data-id');
+      var clickedThing = allThings.find(function(t) {
+        return t['@iot.id'].toString() === thingId;
+      });
+      if (clickedThing) {
+        var tile = tileById[thingId];
+        if (tile) {
+          tile.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    }
+  });
+  </script>
+</body>
+</html>

@@ -3,304 +3,401 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Leaflet Plugin with Detailed Popups</title>
+  <title>Leaflet Plugin with Detailed Popups and Search</title>
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
   />
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-    }
-    #map {
-      height: 100vh;
-    }
-    .leaflet-popup-content {
-      font-size: 14px;
-      line-height: 1.6;
-      max-height: 300px;
-      min-width: 300px;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
-    .leaflet-tooltip {
-      background: lightsteelblue;
-      border-radius: 8px;
-      padding: 6px;
-      font-size: 12px;
-    }
-    .popup-content {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .popup-header {
-      font-weight: bold;
-    }
-    .popup-detail {
-      font-size: 13px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .popup-label {
-      font-weight: bold;
-    }
-    .graphs-container {
-      width: 100%;
-    }
-    .graph-container {
-      margin-top: 10px;
-      width: 100%;
-    }
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+  #map {
+    height: 100vh;
+  }
+  .leaflet-popup-content {
+    font-size: 14px;
+    line-height: 1.6;
+    max-height: 300px;
+    min-width: 300px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .leaflet-tooltip {
+    background: lightsteelblue;
+    border-radius: 8px;
+    padding: 6px;
+    font-size: 12px;
+  }
+  .popup-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .popup-header {
+    font-weight: bold;
+  }
+  .popup-detail {
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .popup-label {
+    font-weight: bold;
+  }
+  .graphs-container {
+    width: 100%;
+  }
+  .graph-container {
+    margin-top: 10px;
+    width: 100%;
+  }
+  #search-container {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 9999;
+    background: white;
+    padding: 6px;
+    border-radius: 4px;
+    width: 200px;
+    box-shadow: 0 0 6px rgba(0,0,0,0.15);
+  }
+  #search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px;
+  }
+  #search-results {
+    margin-top: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    display: none;
+  }
+  .search-item {
+    padding: 4px;
+    cursor: pointer;
+    border-bottom: 1px solid #ddd;
+  }
+  .search-item:hover {
+    background: #f0f0f0;
+  }
   </style>
 </head>
 <body>
+  <div id="search-container">
+    <input
+      type="text"
+      id="search-input"
+      placeholder="Search name or description..."
+    />
+    <div id="search-results"></div>
+  </div>
   <div id="map"></div>
+
   <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
   <script src="https://d3js.org/d3.v4.min.js"></script>
   <script>
-    var map = L.map('map');
+  var map = L.map('map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+  function drawGraph(containerId, data, datastreamName, unitSymbol) {
+    var containerElem = document.getElementById(containerId);
+    var containerWidth = containerElem.clientWidth - 50;
 
-    function drawGraph(containerId, data, datastreamName, unitSymbol) {
-      var containerElem = document.getElementById(containerId);
-      var containerWidth = containerElem.clientWidth - 50;
+    var margin = { top: 10, right: 30, bottom: 30, left: 55 },
+      width = containerWidth - margin.left - margin.right,
+      height = 150 - margin.top - margin.bottom;
 
-      // Increase left margin a bit to avoid clipping the y-axis label
-      var margin = { top: 10, right: 30, bottom: 30, left: 55 },
-        width = containerWidth - margin.left - margin.right,
-        height = 150 - margin.top - margin.bottom;
+    var parsedData = data
+      .map(function(d) {
+        return {
+          date: new Date(d.phenomenonTime),
+          value: +d.result
+        };
+      })
+      .sort(function(a, b) {
+        return a.date - b.date;
+      });
 
-      var parsedData = data
-        .map(function(d) {
-          return {
-            date: new Date(d.phenomenonTime),
-            value: +d.result
-          };
+    var svg = d3
+      .select('#' + containerId)
+      .append('svg')
+      .attr('width', width + margin.left + margin.right)
+      .attr('height', height + margin.top + margin.bottom)
+      .append('g')
+      .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+
+    var x = d3
+      .scaleTime()
+      .domain(d3.extent(parsedData, function(d) {
+        return d.date;
+      }))
+      .range([0, width]);
+
+    var dateDomain = x.domain();
+    var formatDate = d3.timeFormat('%m/%d/%Y');
+    var dateRangeLabel =
+      'Time (' + formatDate(dateDomain[0]) + ' - ' + formatDate(dateDomain[1]) + ')';
+
+    var xAxis = svg
+      .append('g')
+      .attr('transform', 'translate(0,' + height + ')')
+      .call(d3.axisBottom(x).ticks(4));
+
+    xAxis
+      .append('text')
+      .attr('fill', 'black')
+      .attr('x', width / 2)
+      .attr('y', margin.bottom)
+      .style('text-anchor', 'middle')
+      .text(dateRangeLabel);
+
+    var y = d3
+      .scaleLinear()
+      .domain([
+        d3.min(parsedData, function(d) {
+          return d.value;
+        }),
+        d3.max(parsedData, function(d) {
+          return d.value;
         })
-        .sort(function(a, b) {
-          return a.date - b.date;
-        });
+      ])
+      .range([height, 0]);
 
-      var svg = d3
-        .select('#' + containerId)
-        .append('svg')
-        .attr('width', width + margin.left + margin.right)
-        .attr('height', height + margin.top + margin.bottom)
-        .append('g')
-        .attr(
-          'transform',
-          'translate(' + margin.left + ',' + margin.top + ')'
-        );
+    var yAxis = svg.append('g').call(d3.axisLeft(y).ticks(4));
 
-      var x = d3
-        .scaleTime()
-        .domain(d3.extent(parsedData, function(d) {
-          return d.date;
-        }))
-        .range([0, width]);
+    yAxis
+      .append('text')
+      .attr('fill', 'black')
+      .attr('transform', 'rotate(-90)')
+      .attr('y', -45)
+      .attr('x', -height / 2)
+      .style('text-anchor', 'middle')
+      .text(unitSymbol);
 
-      var dateDomain = x.domain();
-      var formatDate = d3.timeFormat('%m/%d/%Y');
-      var dateRangeLabel =
-        'Time (' + formatDate(dateDomain[0]) + ' - ' + formatDate(dateDomain[1]) + ')';
+    var line = d3
+      .line()
+      .x(function(d) {
+        return x(d.date);
+      })
+      .y(function(d) {
+        return y(d.value);
+      });
 
-      var xAxis = svg
-        .append('g')
-        .attr('transform', 'translate(0,' + height + ')')
-        .call(d3.axisBottom(x).ticks(4));
+    svg
+      .append('path')
+      .datum(parsedData)
+      .attr('fill', 'none')
+      .attr('stroke', '#0074D9')
+      .attr('stroke-width', 1.5)
+      .attr('d', line);
 
-      xAxis
-        .append('text')
-        .attr('fill', 'black')
-        .attr('x', width / 2)
-        .attr('y', margin.bottom)
-        .style('text-anchor', 'middle')
-        .text(dateRangeLabel);
+    d3
+      .select('#' + containerId)
+      .insert('div', ':first-child')
+      .style('font-size', '12px')
+      .style('font-weight', 'bold')
+      .text(datastreamName);
+  }
 
-      var y = d3
-        .scaleLinear()
-        .domain([
-          d3.min(parsedData, function(d) {
-            return d.value;
-          }),
-          d3.max(parsedData, function(d) {
-            return d.value;
-          })
-        ])
-        .range([height, 0]);
+  var markersById = {};
+  var allThings = [];
 
-      var yAxis = svg.append('g').call(d3.axisLeft(y).ticks(4));
+  // Using dynamic request for Things (with expanded Locations and Datastreams)
+  fetch('https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things?$expand=Locations,Datastreams')
+    .then(function(response) {
+      return response.json();
+    })
+    .then(function(jsonData) {
+      var data = jsonData.value || [];
+      allThings = data;
+      var latlngs = [];
 
-      yAxis
-        .append('text')
-        .attr('fill', 'black')
-        .attr('transform', 'rotate(-90)')
-        .attr('y', -45)
-        .attr('x', -height / 2)
-        .style('text-anchor', 'middle')
-        .text(unitSymbol);
+      data.forEach(function(thing) {
+        if (thing.Locations && thing.Locations.length > 0) {
+          var coords = thing.Locations[0].location.coordinates;
+          var lat = coords[1], lon = coords[0];
+          latlngs.push([lat, lon]);
 
-      var line = d3
-        .line()
-        .x(function(d) {
-          return x(d.date);
-        })
-        .y(function(d) {
-          return y(d.value);
-        });
+          // Changed active color to blue and inactive color remains red
+          var markerColor = thing.properties.active ? '#007bff' : '#ff6961';
 
-      svg
-        .append('path')
-        .datum(parsedData)
-        .attr('fill', 'none')
-        .attr('stroke', '#0074D9')
-        .attr('stroke-width', 1.5)
-        .attr('d', line);
+          var marker = L.circleMarker([lat, lon], {
+            color: markerColor,
+            radius: 10
+          }).addTo(map);
 
-      d3
-        .select('#' + containerId)
-        .insert('div', ':first-child')
-        .style('font-size', '12px')
-        .style('font-weight', 'bold')
-        .text(datastreamName);
+          // Convert thingTypes array to a comma-separated string
+          // (Currently commented out as requested)
+          /*
+          var thingTypesArray = thing.properties.thingTypes || [];
+          var thingTypesString = Array.isArray(thingTypesArray) && thingTypesArray.length
+            ? thingTypesArray.join(', ')
+            : 'Unknown';
+          */
+
+          var popupContent =
+            '<div class="popup-content">' +
+              '<div class="popup-header">' + thing.name + '</div>' +
+              '<div class="popup-detail">' +
+                '<div><span class="popup-label">Active:</span> ' +
+                (thing.properties.active ? 'Yes' : 'No') +
+                '</div>' +
+                '<div><span class="popup-label">Location:</span> ' +
+                (thing.Locations[0].name || 'Unknown') +
+                '</div>' +
+                '<div><span class="popup-label">Host:</span> ' +
+                (thing.properties.hostName || 'N/A') +
+                '</div>' +
+                // Commenting out thingTypes field:
+                // '<div><span class="popup-label">Thing Types:</span> ' + thingTypesString + '</div>' +
+                '<div><span class="popup-label">Description:</span> ' +
+                (thing.description || 'No description available') +
+                '</div>' +
+              '</div>' +
+              '<div id="graphs-container-' + thing['@iot.id'] + '" class="graphs-container"></div>' +
+            '</div>';
+
+          marker.bindPopup(popupContent);
+
+          markersById[thing['@iot.id']] = marker;
+
+          marker.on('popupopen', function() {
+            var containerId = 'graphs-container-' + thing['@iot.id'];
+            var container = document.getElementById(containerId);
+            container.innerHTML = '';
+
+            if (thing.Datastreams && thing.Datastreams.length > 0) {
+              thing.Datastreams.forEach(function(ds, idx) {
+                var graphDivId = 'graph-ds-' + thing['@iot.id'] + '-' + idx;
+                var graphDiv = document.createElement('div');
+                graphDiv.setAttribute('id', graphDivId);
+                graphDiv.setAttribute('class', 'graph-container');
+
+                var buttonId = 'load-button-' + thing['@iot.id'] + '-' + idx;
+                var loadButton = document.createElement('button');
+                var dsName = ds.name || 'Unknown';
+                loadButton.textContent = 'Load Data (' + dsName + ')';
+                loadButton.setAttribute('id', buttonId);
+
+                loadButton.addEventListener('click', function() {
+                  loadButton.textContent = 'Loading...';
+                  loadButton.disabled = true;
+
+                  var obsUrl = 'https://wyseason.uwyo.edu/sta/v1.1/Datastreams(' +
+                    ds['@iot.id'] + ')/Observations?$orderby=phenomenonTime asc';
+
+                  fetch(obsUrl)
+                    .then(function(resp) {
+                      return resp.json();
+                    })
+                    .then(function(obsJson) {
+                      var obsData = obsJson.value || [];
+                      if (obsData.length > 0) {
+                        var maxTime = new Date(obsData[obsData.length - 1].phenomenonTime);
+                        var cutoff = new Date(maxTime.getTime() - 24 * 60 * 60 * 1000);
+                        var recentObs = obsData.filter(function(o) {
+                          return new Date(o.phenomenonTime) >= cutoff;
+                        });
+                        if (recentObs.length > 0) {
+                          var symbol =
+                            (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) ||
+                            '';
+                          drawGraph(graphDivId, recentObs, dsName, symbol);
+                        }
+                      }
+                    })
+                    .catch(function(err) {
+                      console.error('Error fetching observations:', err);
+                    })
+                    .finally(function() {
+                      loadButton.remove();
+                    });
+                });
+
+                container.appendChild(loadButton);
+                container.appendChild(graphDiv);
+              });
+            }
+          });
+
+          marker.bindTooltip(thing.name, {
+            permanent: true,
+            direction: 'right'
+          });
+        }
+      });
+
+      if (latlngs.length > 0) {
+        map.fitBounds(latlngs);
+      }
+    })
+    .catch(function(error) {
+      console.error('Error loading things data:', error);
+    });
+
+  // Simple search logic
+  var searchInput = document.getElementById('search-input');
+  var searchResults = document.getElementById('search-results');
+
+  searchInput.addEventListener('input', function() {
+    var query = this.value.toLowerCase().trim();
+    if (!query) {
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+      return;
     }
 
-    // Using the first-version "things_tree.json"
-    fetch('things_tree.json')
-      .then(function(response) {
-        return response.json();
-      })
-      .then(function(data) {
-        var latlngs = [];
-        data.forEach(function(thing) {
-          if (thing.Locations && thing.Locations.length > 0) {
-            var coords = thing.Locations[0].location.coordinates;
-            var lat = coords[1],
-              lon = coords[0];
-            latlngs.push([lat, lon]);
+    var filtered = allThings.filter(function(thing) {
+      var nameMatch = thing.name && thing.name.toLowerCase().includes(query);
+      var descMatch = thing.description && thing.description.toLowerCase().includes(query);
+      return nameMatch || descMatch;
+    });
 
-            var markerColor = thing.properties.active
-              ? '#77dd77'
-              : '#ff6961';
+    if (!filtered.length) {
+      searchResults.innerHTML = '<div class="search-item">No matches found</div>';
+      searchResults.style.display = 'block';
+    } else {
+      var itemsHtml = filtered
+        .map(function(t) {
+          return (
+            '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
+              (t.name || 'No name') +
+            '</div>'
+          );
+        })
+        .join('');
+      searchResults.innerHTML = itemsHtml;
+      searchResults.style.display = 'block';
+    }
+  });
 
-            var marker = L.circleMarker([lat, lon], {
-              color: markerColor,
-              radius: 10
-            }).addTo(map);
-
-            var popupContent =
-              '<div class="popup-content">' +
-              '<div class="popup-header">' +
-              thing.name +
-              '</div>' +
-              '<div class="popup-detail">' +
-              '<div><span class="popup-label">Description:</span> ' +
-              (thing.description || 'No description available') +
-              '</div>' +
-              '<div><span class="popup-label">Active:</span> ' +
-              (thing.properties.active ? 'Yes' : 'No') +
-              '</div>' +
-              '<div><span class="popup-label">Host:</span> ' +
-              (thing.properties.hostName || 'N/A') +
-              '</div>' +
-              '<div><span class="popup-label">Project:</span> ' +
-              (thing.Projects && thing.Projects.length > 0
-                ? thing.Projects[0].name
-                : 'No project assigned') +
-              '</div>' +
-              '<div><span class="popup-label">Location:</span> ' +
-              (thing.Locations[0].name || 'Unknown') +
-              '</div>' +
-              '</div>' +
-              '<div id="graphs-container-' +
-              thing.id +
-              '" class="graphs-container"></div>' +
-              '</div>';
-
-            marker.bindPopup(popupContent);
-
-            marker.on('popupopen', function() {
-              var containerId = 'graphs-container-' + thing.id;
-              var container = document.getElementById(containerId);
-              container.innerHTML = '';
-
-              if (thing.Datastreams && thing.Datastreams.length > 0) {
-                thing.Datastreams.forEach(function(ds, idx) {
-                  var graphDivId = 'graph-ds-' + thing.id + '-' + idx;
-                  var graphDiv = document.createElement('div');
-                  graphDiv.setAttribute('id', graphDivId);
-                  graphDiv.setAttribute('class', 'graph-container');
-
-                  var buttonId = 'load-button-' + thing.id + '-' + idx;
-                  var loadButton = document.createElement('button');
-                  var dsName = ds.name || 'Unknown';
-                  loadButton.textContent = 'Load Data (' + dsName + ')';
-                  loadButton.setAttribute('id', buttonId);
-
-                  loadButton.addEventListener('click', function() {
-                    loadButton.textContent = 'Loading...';
-                    loadButton.disabled = true;
-
-                    var obsUrl =
-                      'https://wyseason.uwyo.edu/sta/v1.1/Datastreams(' +
-                      ds['@iot.id'] +
-                      ')/Observations?$orderby=phenomenonTime asc';
-
-                    fetch(obsUrl)
-                      .then(function(resp) {
-                        return resp.json();
-                      })
-                      .then(function(obsJson) {
-                        var obsData = obsJson.value || [];
-                        if (obsData.length > 0) {
-                          var maxTime = new Date(obsData[obsData.length - 1].phenomenonTime);
-                          var cutoff = new Date(maxTime.getTime() - 24 * 60 * 60 * 1000);
-                          var recentObs = obsData.filter(function(o) {
-                            return new Date(o.phenomenonTime) >= cutoff;
-                          });
-                          if (recentObs.length > 0) {
-                            var symbol =
-                              (ds.unitOfMeasurement &&
-                                ds.unitOfMeasurement.symbol) ||
-                              '';
-                            drawGraph(graphDivId, recentObs, dsName, symbol);
-                          }
-                        }
-                      })
-                      .catch(function(err) {
-                        console.error('Error fetching observations:', err);
-                      })
-                      .finally(function() {
-                        loadButton.remove();
-                      });
-                  });
-
-                  container.appendChild(loadButton);
-                  container.appendChild(graphDiv);
-                });
-              }
-            });
-
-            marker.bindTooltip(thing.name, {
-              permanent: true,
-              direction: 'right'
-            });
-          }
-        });
-
-        if (latlngs.length > 0) {
-          map.fitBounds(latlngs);
-        }
-      })
-      .catch(function(error) {
-        console.error('Error loading things data:', error);
+  searchResults.addEventListener('click', function(e) {
+    if (e.target && e.target.classList.contains('search-item')) {
+      var thingId = e.target.getAttribute('data-id');
+      var clickedThing = allThings.find(function(t) {
+        return t['@iot.id'].toString() === thingId;
       });
+      if (clickedThing && clickedThing.Locations && clickedThing.Locations.length > 0) {
+        var coords = clickedThing.Locations[0].location.coordinates;
+        map.flyTo([coords[1], coords[0]], 13);
+        var m = markersById[clickedThing['@iot.id']];
+        if (m) {
+          m.openPopup();
+        }
+      }
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    }
+  });
   </script>
 </body>
 </html>
