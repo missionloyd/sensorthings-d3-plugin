@@ -10,7 +10,6 @@
     padding: 0;
     font-family: sans-serif;
   }
-  /* Search bar styles (similar to previous implementation) */
   #search-container {
     position: absolute;
     top: 10px;
@@ -43,8 +42,6 @@
   .search-item:hover {
     background: #f0f0f0;
   }
-
-  /* Container for all things */
   #things-container {
     margin-top: 60px;
     display: flex;
@@ -123,7 +120,6 @@
   function drawGraph(containerId, data, datastreamName, unitSymbol) {
     var containerElem = document.getElementById(containerId);
     containerElem.innerHTML = '';
-
     var containerWidth = containerElem.clientWidth - 50;
     var margin = { top: 10, right: 30, bottom: 30, left: 55 },
       width = containerWidth - margin.left - margin.right,
@@ -139,6 +135,11 @@
       .sort(function(a, b) {
         return a.date - b.date;
       });
+
+    var minVal = d3.min(parsedData, function(d) { return d.value; });
+    var maxVal = d3.max(parsedData, function(d) { return d.value; });
+    // Ensure y-domain always starts at 0 or below if minVal is negative
+    var lowerBound = Math.min(0, minVal);
 
     var svg = d3
       .select('#' + containerId)
@@ -172,14 +173,10 @@
 
     var y = d3
       .scaleLinear()
-      .domain([
-        d3.min(parsedData, function(d) { return d.value; }),
-        d3.max(parsedData, function(d) { return d.value; })
-      ])
+      .domain([ lowerBound, maxVal ])
       .range([height, 0]);
 
     var yAxis = svg.append('g').call(d3.axisLeft(y).ticks(4));
-
     yAxis
       .append('text')
       .attr('fill', 'black')
@@ -237,6 +234,23 @@
               if (recentObs.length > 0) {
                 var symbol = (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
                 var dsName = ds.name || 'Unknown';
+
+                // Use the last observation's value to check against acceptableRange
+                var lastValue = recentObs[recentObs.length - 1].result;
+                if (
+                  ds.properties &&
+                  ds.properties.acceptableRange &&
+                  ds.properties.acceptableRange.length === 2
+                ) {
+                  var rangeMin = ds.properties.acceptableRange[0];
+                  var rangeMax = ds.properties.acceptableRange[1];
+                  if (lastValue >= rangeMin && lastValue <= rangeMax) {
+                    graphDiv.style.borderColor = '#007bff';
+                  } else {
+                    graphDiv.style.borderColor = '#ff6961';
+                  }
+                }
+
                 drawGraph(graphDivId, recentObs, dsName, symbol);
               }
             }
@@ -250,9 +264,7 @@
 
   function fetchAndRenderThings() {
     fetch(thingsEndpoint)
-      .then(function(response) {
-        return response.json();
-      })
+      .then(function(response) { return response.json(); })
       .then(function(jsonData) {
         var data = jsonData.value || [];
         allThings = data;
@@ -270,6 +282,14 @@
 
           var detail = document.createElement('div');
           detail.classList.add('tile-detail');
+
+          var lat = thing.Locations && thing.Locations[0] && thing.Locations[0].location.coordinates
+            ? thing.Locations[0].location.coordinates[1]
+            : 'Unknown';
+          var lon = thing.Locations && thing.Locations[0] && thing.Locations[0].location.coordinates
+            ? thing.Locations[0].location.coordinates[0]
+            : 'Unknown';
+
           detail.innerHTML =
             '<div><span class="popup-label">Active:</span> ' +
             (thing.properties.active ? 'Yes' : 'No') +
@@ -277,6 +297,8 @@
             '<div><span class="popup-label">Location:</span> ' +
             ((thing.Locations && thing.Locations[0] && thing.Locations[0].name) || 'Unknown') +
             '</div>' +
+            '<div><span class="popup-label">Latitude:</span> ' + lat + '</div>' +
+            '<div><span class="popup-label">Longitude:</span> ' + lon + '</div>' +
             '<div><span class="popup-label">Host:</span> ' +
             (thing.properties.hostName || 'N/A') +
             '</div>' +
@@ -286,22 +308,24 @@
 
           var refreshBtn = document.createElement('button');
           refreshBtn.classList.add('refresh-button');
-          refreshBtn.textContent = 'Refresh Data';
+          refreshBtn.textContent = 'Load Data';
+          var dataLoaded = false;
 
           var datastreamsContainer = document.createElement('div');
           datastreamsContainer.classList.add('datastreams-container');
 
-          loadDatastreamsIntoTile(thing, datastreamsContainer);
-
           refreshBtn.addEventListener('click', function() {
             loadDatastreamsIntoTile(thing, datastreamsContainer);
+            if (!dataLoaded) {
+              dataLoaded = true;
+              refreshBtn.textContent = 'Refresh Data';
+            }
           });
 
           tile.appendChild(header);
           tile.appendChild(detail);
           tile.appendChild(refreshBtn);
           tile.appendChild(datastreamsContainer);
-
           thingsContainer.appendChild(tile);
           tileById[thing['@iot.id']] = tile;
         });
@@ -323,26 +347,22 @@
       searchResults.style.display = 'none';
       return;
     }
-
     var filtered = allThings.filter(function(thing) {
       var nameMatch = thing.name && thing.name.toLowerCase().includes(query);
       var descMatch = thing.description && thing.description.toLowerCase().includes(query);
       return nameMatch || descMatch;
     });
-
     if (!filtered.length) {
       searchResults.innerHTML = '<div class="search-item">No matches found</div>';
       searchResults.style.display = 'block';
     } else {
-      var itemsHtml = filtered
-        .map(function(t) {
-          return (
-            '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
-              (t.name || 'No name') +
-            '</div>'
-          );
-        })
-        .join('');
+      var itemsHtml = filtered.map(function(t) {
+        return (
+          '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
+          (t.name || 'No name') +
+          '</div>'
+        );
+      }).join('');
       searchResults.innerHTML = itemsHtml;
       searchResults.style.display = 'block';
     }

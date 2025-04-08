@@ -51,7 +51,10 @@
   }
   .graph-container {
     margin-top: 10px;
-    width: 100%;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 6px;
+    display: none;
   }
   #search-container {
     position: absolute;
@@ -109,8 +112,9 @@
 
   function drawGraph(containerId, data, datastreamName, unitSymbol) {
     var containerElem = document.getElementById(containerId);
-    var containerWidth = containerElem.clientWidth - 50;
-
+    containerElem.innerHTML = '';
+    var parentWidth = containerElem.parentNode.offsetWidth;
+    var containerWidth = parentWidth - 20;
     var margin = { top: 10, right: 30, bottom: 30, left: 55 },
       width = containerWidth - margin.left - margin.right,
       height = 150 - margin.top - margin.bottom;
@@ -126,19 +130,21 @@
         return a.date - b.date;
       });
 
+    var minVal = d3.min(parsedData, function(d) { return d.value; });
+    var maxVal = d3.max(parsedData, function(d) { return d.value; });
+    var lowerBound = Math.min(0, minVal);
+
     var svg = d3
       .select('#' + containerId)
       .append('svg')
-      .attr('width', width + margin.left + margin.right)
+      .attr('width',  width + margin.left + margin.right)
       .attr('height', height + margin.top + margin.bottom)
       .append('g')
       .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
 
     var x = d3
       .scaleTime()
-      .domain(d3.extent(parsedData, function(d) {
-        return d.date;
-      }))
+      .domain(d3.extent(parsedData, function(d) { return d.date; }))
       .range([0, width]);
 
     var dateDomain = x.domain();
@@ -150,7 +156,6 @@
       .append('g')
       .attr('transform', 'translate(0,' + height + ')')
       .call(d3.axisBottom(x).ticks(4));
-
     xAxis
       .append('text')
       .attr('fill', 'black')
@@ -161,18 +166,10 @@
 
     var y = d3
       .scaleLinear()
-      .domain([
-        d3.min(parsedData, function(d) {
-          return d.value;
-        }),
-        d3.max(parsedData, function(d) {
-          return d.value;
-        })
-      ])
-      .range([height, 0]);
+      .domain([ lowerBound, maxVal ])
+      .range([ height, 0 ]);
 
     var yAxis = svg.append('g').call(d3.axisLeft(y).ticks(4));
-
     yAxis
       .append('text')
       .attr('fill', 'black')
@@ -184,12 +181,8 @@
 
     var line = d3
       .line()
-      .x(function(d) {
-        return x(d.date);
-      })
-      .y(function(d) {
-        return y(d.value);
-      });
+      .x(function(d) { return x(d.date); })
+      .y(function(d) { return y(d.value); });
 
     svg
       .append('path')
@@ -210,7 +203,6 @@
   var markersById = {};
   var allThings = [];
 
-  // Using dynamic request for Things (with expanded Locations and Datastreams)
   fetch('https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things?$expand=Locations,Datastreams')
     .then(function(response) {
       return response.json();
@@ -223,25 +215,15 @@
       data.forEach(function(thing) {
         if (thing.Locations && thing.Locations.length > 0) {
           var coords = thing.Locations[0].location.coordinates;
-          var lat = coords[1], lon = coords[0];
+          var lat = coords[1];
+          var lon = coords[0];
           latlngs.push([lat, lon]);
 
-          // Changed active color to blue and inactive color remains red
           var markerColor = thing.properties.active ? '#007bff' : '#ff6961';
-
           var marker = L.circleMarker([lat, lon], {
             color: markerColor,
             radius: 10
           }).addTo(map);
-
-          // Convert thingTypes array to a comma-separated string
-          // (Currently commented out as requested)
-          /*
-          var thingTypesArray = thing.properties.thingTypes || [];
-          var thingTypesString = Array.isArray(thingTypesArray) && thingTypesArray.length
-            ? thingTypesArray.join(', ')
-            : 'Unknown';
-          */
 
           var popupContent =
             '<div class="popup-content">' +
@@ -253,11 +235,11 @@
                 '<div><span class="popup-label">Location:</span> ' +
                 (thing.Locations[0].name || 'Unknown') +
                 '</div>' +
+                '<div><span class="popup-label">Latitude:</span> ' + lat + '</div>' +
+                '<div><span class="popup-label">Longitude:</span> ' + lon + '</div>' +
                 '<div><span class="popup-label">Host:</span> ' +
                 (thing.properties.hostName || 'N/A') +
                 '</div>' +
-                // Commenting out thingTypes field:
-                // '<div><span class="popup-label">Thing Types:</span> ' + thingTypesString + '</div>' +
                 '<div><span class="popup-label">Description:</span> ' +
                 (thing.description || 'No description available') +
                 '</div>' +
@@ -266,7 +248,6 @@
             '</div>';
 
           marker.bindPopup(popupContent);
-
           markersById[thing['@iot.id']] = marker;
 
           marker.on('popupopen', function() {
@@ -276,28 +257,34 @@
 
             if (thing.Datastreams && thing.Datastreams.length > 0) {
               thing.Datastreams.forEach(function(ds, idx) {
-                var graphDivId = 'graph-ds-' + thing['@iot.id'] + '-' + idx;
-                var graphDiv = document.createElement('div');
-                graphDiv.setAttribute('id', graphDivId);
-                graphDiv.setAttribute('class', 'graph-container');
+                var dsDiv = document.createElement('div');
+                dsDiv.style.marginBottom = '8px';
+                container.appendChild(dsDiv);
 
-                var buttonId = 'load-button-' + thing['@iot.id'] + '-' + idx;
-                var loadButton = document.createElement('button');
                 var dsName = ds.name || 'Unknown';
-                loadButton.textContent = 'Load Data (' + dsName + ')';
-                loadButton.setAttribute('id', buttonId);
+                var dsButton = document.createElement('button');
+                dsButton.textContent = 'Load Data (' + dsName + ')';
+                dsButton.style.marginRight = '4px';
 
-                loadButton.addEventListener('click', function() {
-                  loadButton.textContent = 'Loading...';
-                  loadButton.disabled = true;
+                var graphDiv = document.createElement('div');
+                graphDiv.classList.add('graph-container');
+                var graphDivId = 'graph-ds-' + thing['@iot.id'] + '-' + idx;
+                graphDiv.setAttribute('id', graphDivId);
+
+                dsDiv.appendChild(dsButton);
+                dsDiv.appendChild(graphDiv);
+
+                var dataLoaded = false;
+
+                dsButton.addEventListener('click', function() {
+                  dsButton.textContent = 'Loading...';
+                  dsButton.disabled = true;
 
                   var obsUrl = 'https://wyseason.uwyo.edu/sta/v1.1/Datastreams(' +
                     ds['@iot.id'] + ')/Observations?$orderby=phenomenonTime asc';
 
                   fetch(obsUrl)
-                    .then(function(resp) {
-                      return resp.json();
-                    })
+                    .then(function(resp) { return resp.json(); })
                     .then(function(obsJson) {
                       var obsData = obsJson.value || [];
                       if (obsData.length > 0) {
@@ -307,9 +294,23 @@
                           return new Date(o.phenomenonTime) >= cutoff;
                         });
                         if (recentObs.length > 0) {
-                          var symbol =
-                            (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) ||
-                            '';
+                          var symbol = (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
+                          var lastValue = recentObs[recentObs.length - 1].result;
+
+                          if (
+                            ds.properties &&
+                            ds.properties.acceptableRange &&
+                            ds.properties.acceptableRange.length === 2
+                          ) {
+                            var rangeMin = ds.properties.acceptableRange[0];
+                            var rangeMax = ds.properties.acceptableRange[1];
+                            if (lastValue >= rangeMin && lastValue <= rangeMax) {
+                              graphDiv.style.borderColor = '#007bff';
+                            } else {
+                              graphDiv.style.borderColor = '#ff6961';
+                            }
+                          }
+                          graphDiv.style.display = 'block';
                           drawGraph(graphDivId, recentObs, dsName, symbol);
                         }
                       }
@@ -318,13 +319,18 @@
                       console.error('Error fetching observations:', err);
                     })
                     .finally(function() {
-                      loadButton.remove();
+                      dsButton.disabled = false;
+                      if (!dataLoaded) {
+                        dataLoaded = true;
+                        dsButton.textContent = 'Refresh Data (' + dsName + ')';
+                      } else {
+                        dsButton.textContent = 'Refresh Data (' + dsName + ')';
+                      }
                     });
                 });
-
-                container.appendChild(loadButton);
-                container.appendChild(graphDiv);
               });
+            } else {
+              container.innerHTML = '<div>No Datastreams</div>';
             }
           });
 
@@ -365,15 +371,13 @@
       searchResults.innerHTML = '<div class="search-item">No matches found</div>';
       searchResults.style.display = 'block';
     } else {
-      var itemsHtml = filtered
-        .map(function(t) {
-          return (
-            '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
-              (t.name || 'No name') +
-            '</div>'
-          );
-        })
-        .join('');
+      var itemsHtml = filtered.map(function(t) {
+        return (
+          '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
+            (t.name || 'No name') +
+          '</div>'
+        );
+      }).join('');
       searchResults.innerHTML = itemsHtml;
       searchResults.style.display = 'block';
     }
