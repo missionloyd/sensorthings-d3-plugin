@@ -117,7 +117,7 @@
   var allThings = [];
   var tileById = {};
 
-  function drawGraph(containerId, data, datastreamName, unitSymbol) {
+  function drawGraph(containerId, data, datastreamName, unitSymbol, rangeMin, rangeMax) {
     var containerElem = document.getElementById(containerId);
     containerElem.innerHTML = '';
     var containerWidth = containerElem.clientWidth - 50;
@@ -126,58 +126,45 @@
       height = 150 - margin.top - margin.bottom;
 
     var parsedData = data
-      .map(function(d) {
-        return {
-          date: new Date(d.phenomenonTime),
-          value: +d.result
-        };
-      })
-      .sort(function(a, b) {
-        return a.date - b.date;
-      });
+      .map(function(d) { return { date: new Date(d.phenomenonTime), value: +d.result }; })
+      .sort(function(a, b) { return a.date - b.date; });
 
     var minVal = d3.min(parsedData, function(d) { return d.value; });
     var maxVal = d3.max(parsedData, function(d) { return d.value; });
-    // Ensure y-domain always starts at 0 or below if minVal is negative
     var lowerBound = Math.min(0, minVal);
 
-    var svg = d3
-      .select('#' + containerId)
+    var svg = d3.select('#' + containerId)
       .append('svg')
       .attr('width', width + margin.left + margin.right)
       .attr('height', height + margin.top + margin.bottom)
+      .attr('overflow', 'visible')
       .append('g')
       .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
 
-    var x = d3
-      .scaleTime()
+    var x = d3.scaleTime()
       .domain(d3.extent(parsedData, function(d) { return d.date; }))
       .range([0, width]);
 
-    var dateDomain = x.domain();
-    var formatDate = d3.timeFormat('%m/%d/%Y');
-    var dateRangeLabel = 'Time (' + formatDate(dateDomain[0]) + ' - ' + formatDate(dateDomain[1]) + ')';
+    var formatDate = d3.timeFormat('%m/%d/%Y'),
+        formatTime = d3.timeFormat('%H:%M:%S');
 
-    var xAxis = svg
-      .append('g')
+    var xAxis = svg.append('g')
       .attr('transform', 'translate(0,' + height + ')')
       .call(d3.axisBottom(x).ticks(4));
 
-    xAxis
-      .append('text')
+    xAxis.append('text')
       .attr('fill', 'black')
       .attr('x', width / 2)
       .attr('y', margin.bottom)
       .style('text-anchor', 'middle')
-      .text(dateRangeLabel);
+      .text('Time (' + formatDate(x.domain()[0]) + ' - ' + formatDate(x.domain()[1]) + ')');
 
-    var y = d3
-      .scaleLinear()
-      .domain([ lowerBound, maxVal ])
+    var y = d3.scaleLinear()
+      .domain([lowerBound, maxVal])
       .range([height, 0]);
 
-    var yAxis = svg.append('g').call(d3.axisLeft(y).ticks(4));
-    yAxis
+    svg.append('g')
+      .call(d3.axisLeft(y).ticks(4))
       .append('text')
       .attr('fill', 'black')
       .attr('transform', 'rotate(-90)')
@@ -186,203 +173,174 @@
       .style('text-anchor', 'middle')
       .text(unitSymbol);
 
-    var line = d3
-      .line()
+    var line = d3.line()
       .x(function(d) { return x(d.date); })
       .y(function(d) { return y(d.value); });
 
-    svg
-      .append('path')
-      .datum(parsedData)
-      .attr('fill', 'none')
-      .attr('stroke', '#0074D9')
-      .attr('stroke-width', 1.5)
-      .attr('d', line);
+    if (rangeMin != null && rangeMax != null) {
+      parsedData.slice(1).forEach(function(d, i) {
+        svg.append('path')
+          .datum([parsedData[i], d])
+          .attr('fill', 'none')
+          .attr('stroke', (d.value >= rangeMin && d.value <= rangeMax) ? '#007bff' : '#ff6961')
+          .attr('stroke-width', 1.5)
+          .attr('d', line);
+      });
+    } else {
+      svg.append('path')
+        .datum(parsedData)
+        .attr('fill', 'none')
+        .attr('stroke', '#0074D9')
+        .attr('stroke-width', 1.5)
+        .attr('d', line);
+    }
 
-    d3
-      .select('#' + containerId)
+    var focus = svg.append('g').style('display', 'none');
+    focus.append('rect')
+      .attr('x', 4).attr('y', -30)
+      .attr('width', 140).attr('height', 40)
+      .attr('fill', 'white').attr('stroke', '#ccc').attr('rx', 4).attr('ry', 4).attr('opacity', 0.9);
+    focus.append('circle').attr('r', 3).attr('fill', '#007bff');
+    focus.append('text').attr('font-size', '10px');
+
+    svg.append('rect')
+      .attr('width', width).attr('height', height)
+      .attr('fill', 'none').attr('pointer-events', 'all')
+      .on('mouseover', function() { focus.style('display', null); })
+      .on('mouseout',  function() { focus.style('display', 'none'); })
+      .on('mousemove', function() {
+        var bisect = d3.bisector(function(d) { return d.date; }).left;
+        var mx = d3.mouse(this)[0], x0 = x.invert(mx);
+        var i = bisect(parsedData, x0, 1), d0 = parsedData[i-1], d1 = parsedData[i] || d0;
+        var d = x0 - d0.date > d1.date - x0 ? d1 : d0;
+        focus.attr('transform', 'translate(' + x(d.date) + ',' + y(d.value) + ')');
+        focus.select('text').text('');
+        focus.select('text')
+          .append('tspan')
+            .attr('x', 8).attr('dy', '-1.5em')
+            .text('Time: ' + formatDate(d.date) + ' ' + formatTime(d.date))
+          .append('tspan')
+            .attr('x', 8).attr('dy', '1.5em')
+            .text('Value: ' + d.value + ' ' + unitSymbol);
+      });
+
+    d3.select('#' + containerId)
       .insert('div', ':first-child')
-      .style('font-size', '12px')
-      .style('font-weight', 'bold')
+      .style('font-size', '12px').style('font-weight', 'bold')
       .text(datastreamName);
   }
 
-  var thingsEndpoint = 'https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things?$expand=Locations,Datastreams';
+  var thingsEndpoint = 
+    'https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things' +
+    '?$expand=Locations,Datastreams($expand=ObservedProperty)';
   var thingsContainer = document.getElementById('things-container');
 
   function loadDatastreamsIntoTile(thing, datastreamsContainer) {
     datastreamsContainer.innerHTML = '';
-    if (thing.Datastreams && thing.Datastreams.length > 0) {
-      thing.Datastreams.forEach(function(ds) {
-        var graphDiv = document.createElement('div');
-        graphDiv.classList.add('graph-container');
-        var graphDivId = 'graph-container-' + thing['@iot.id'] + '-' + ds['@iot.id'];
-        graphDiv.setAttribute('id', graphDivId);
-        datastreamsContainer.appendChild(graphDiv);
+    if (!thing.Datastreams) return;
+    thing.Datastreams.forEach(function(ds) {
+      var graphDiv = document.createElement('div');
+      graphDiv.classList.add('graph-container');
+      var graphDivId = 'graph-container-' + thing['@iot.id'] + '-' + ds['@iot.id'];
+      graphDiv.id = graphDivId;
+      datastreamsContainer.appendChild(graphDiv);
 
-        var obsUrl = 'https://wyseason.uwyo.edu/sta/v1.1/Datastreams(' + ds['@iot.id'] + ')/Observations?$orderby=phenomenonTime asc';
-        fetch(obsUrl)
-          .then(function(resp) { return resp.json(); })
-          .then(function(obsJson) {
-            var obsData = obsJson.value || [];
-            if (obsData.length > 0) {
-              var maxTime = new Date(obsData[obsData.length - 1].phenomenonTime);
-              var cutoff = new Date(maxTime.getTime() - 24 * 60 * 60 * 1000);
-              var recentObs = obsData.filter(function(o) {
-                return new Date(o.phenomenonTime) >= cutoff;
-              });
-              if (recentObs.length > 0) {
-                var symbol = (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
-                var dsName = ds.name || 'Unknown';
-
-                // Use the last observation's value to check against acceptableRange
-                var lastValue = recentObs[recentObs.length - 1].result;
-                if (
-                  ds.properties &&
-                  ds.properties.acceptableRange &&
-                  ds.properties.acceptableRange.length === 2
-                ) {
-                  var rangeMin = ds.properties.acceptableRange[0];
-                  var rangeMax = ds.properties.acceptableRange[1];
-                  if (lastValue >= rangeMin && lastValue <= rangeMax) {
-                    graphDiv.style.borderColor = '#007bff';
-                  } else {
-                    graphDiv.style.borderColor = '#ff6961';
-                  }
-                }
-
-                drawGraph(graphDivId, recentObs, dsName, symbol);
-              }
-            }
-          })
-          .catch(function(err) {
-            console.error('Error fetching observations:', err);
-          });
-      });
-    }
+      fetch(
+        'https://wyseason.uwyo.edu/sta/v1.1/Datastreams(' +
+        ds['@iot.id'] + ')/Observations?$orderby=phenomenonTime asc'
+      ).then(function(resp){ return resp.json(); })
+       .then(function(obsJson){
+        var obsData = obsJson.value||[];
+        if(!obsData.length) return;
+        var maxT = new Date(obsData[obsData.length-1].phenomenonTime);
+        var cutoff = new Date(maxT.getTime()-24*60*60*1000);
+        var recent = obsData.filter(function(o){ return new Date(o.phenomenonTime)>=cutoff; });
+        if(!recent.length) return;
+        var sym = (ds.unitOfMeasurement&&ds.unitOfMeasurement.symbol)||'';
+        var dsName = (ds.ObservedProperty&&ds.ObservedProperty.name)||ds.name||'Unknown';
+        var lv = recent[recent.length-1].result;
+        var rMin,rMax;
+        if(ds.properties&&ds.properties.acceptableRange&&ds.properties.acceptableRange.length===2){
+          rMin=ds.properties.acceptableRange[0];
+          rMax=ds.properties.acceptableRange[1];
+          graphDiv.style.borderColor = (lv>=rMin&&lv<=rMax)?'#007bff':'#ff6961';
+        }
+        drawGraph(graphDivId,recent,dsName,sym,rMin,rMax);
+      }).catch(function(err){ console.error(err); });
+    });
   }
 
   function fetchAndRenderThings() {
     fetch(thingsEndpoint)
-      .then(function(response) { return response.json(); })
-      .then(function(jsonData) {
-        var data = jsonData.value || [];
-        allThings = data;
-        tileById = {};
-        thingsContainer.innerHTML = '';
-
-        data.forEach(function(thing) {
-          var tile = document.createElement('div');
-          tile.classList.add('thing-tile');
-          tile.classList.add(thing.properties.active ? 'active' : 'inactive');
-
-          var header = document.createElement('div');
-          header.classList.add('tile-header');
-          header.textContent = thing.name;
-
-          var detail = document.createElement('div');
-          detail.classList.add('tile-detail');
-
-          var lat = thing.Locations && thing.Locations[0] && thing.Locations[0].location.coordinates
-            ? thing.Locations[0].location.coordinates[1]
-            : 'Unknown';
-          var lon = thing.Locations && thing.Locations[0] && thing.Locations[0].location.coordinates
-            ? thing.Locations[0].location.coordinates[0]
-            : 'Unknown';
-
-          detail.innerHTML =
-            '<div><span class="popup-label">Active:</span> ' +
-            (thing.properties.active ? 'Yes' : 'No') +
-            '</div>' +
-            '<div><span class="popup-label">Location:</span> ' +
-            ((thing.Locations && thing.Locations[0] && thing.Locations[0].name) || 'Unknown') +
-            '</div>' +
-            '<div><span class="popup-label">Latitude:</span> ' + lat + '</div>' +
-            '<div><span class="popup-label">Longitude:</span> ' + lon + '</div>' +
-            '<div><span class="popup-label">Host:</span> ' +
-            (thing.properties.hostName || 'N/A') +
-            '</div>' +
-            '<div><span class="popup-label">Description:</span> ' +
-            (thing.description || 'No description available') +
-            '</div>';
-
-          var refreshBtn = document.createElement('button');
-          refreshBtn.classList.add('refresh-button');
-          refreshBtn.textContent = 'Load Data';
-          var dataLoaded = false;
-
-          var datastreamsContainer = document.createElement('div');
-          datastreamsContainer.classList.add('datastreams-container');
-
-          refreshBtn.addEventListener('click', function() {
-            loadDatastreamsIntoTile(thing, datastreamsContainer);
-            if (!dataLoaded) {
-              dataLoaded = true;
-              refreshBtn.textContent = 'Refresh Data';
-            }
+      .then(function(r){return r.json();})
+      .then(function(json){
+        allThings=json.value||[];
+        tileById={};
+        thingsContainer.innerHTML='';
+        allThings.forEach(function(thing){
+          var tile=document.createElement('div');
+          tile.className='thing-tile '+(thing.properties.active?'active':'inactive');
+          var header=document.createElement('div');
+          header.className='tile-header';
+          header.textContent=thing.name;
+          var detail=document.createElement('div');
+          detail.className='tile-detail';
+          var lat=(thing.Locations&&thing.Locations[0]&&thing.Locations[0].location.coordinates?[thing.Locations[0].location.coordinates[1]]:'' )||'Unknown';
+          var lon=(thing.Locations&&thing.Locations[0]&&thing.Locations[0].location.coordinates?[thing.Locations[0].location.coordinates[0]]:'' )||'Unknown';
+          detail.innerHTML=
+            '<div><span class="popup-label">Active:</span> '+(thing.properties.active?'Yes':'No')+'</div>'+
+            '<div><span class="popup-label">Location:</span> '+((thing.Locations&&thing.Locations[0].name)||'Unknown')+'</div>'+
+            '<div><span class="popup-label">Latitude:</span> '+lat+'</div>'+
+            '<div><span class="popup-label">Longitude:</span> '+lon+'</div>'+
+            '<div><span class="popup-label">Host:</span> '+(thing.properties.hostName||'N/A')+'</div>'+
+            '<div><span class="popup-label">Description:</span> '+(thing.description||'No description')+'</div>';
+          var btn=document.createElement('button');
+          btn.className='refresh-button';
+          btn.textContent='Load Data';
+          var used=false;
+          var dsCont=document.createElement('div');
+          dsCont.className='datastreams-container';
+          btn.addEventListener('click',function(){
+            loadDatastreamsIntoTile(thing,dsCont);
+            if(!used){used=true;btn.textContent='Refresh Data';}
           });
-
-          tile.appendChild(header);
-          tile.appendChild(detail);
-          tile.appendChild(refreshBtn);
-          tile.appendChild(datastreamsContainer);
+          tile.append(header,detail,btn,dsCont);
           thingsContainer.appendChild(tile);
-          tileById[thing['@iot.id']] = tile;
+          tileById[thing['@iot.id']]=tile;
         });
       })
-      .catch(function(error) {
-        console.error('Error loading things data:', error);
-      });
+      .catch(console.error);
   }
 
   fetchAndRenderThings();
 
-  var searchInput = document.getElementById('search-input');
-  var searchResults = document.getElementById('search-results');
-
-  searchInput.addEventListener('input', function() {
-    var query = this.value.toLowerCase().trim();
-    if (!query) {
-      searchResults.innerHTML = '';
-      searchResults.style.display = 'none';
-      return;
-    }
-    var filtered = allThings.filter(function(thing) {
-      var nameMatch = thing.name && thing.name.toLowerCase().includes(query);
-      var descMatch = thing.description && thing.description.toLowerCase().includes(query);
-      return nameMatch || descMatch;
+  var searchInput=document.getElementById('search-input'),
+      searchResults=document.getElementById('search-results');
+  searchInput.addEventListener('input',function(){
+    var q=this.value.toLowerCase().trim();
+    if(!q){searchResults.innerHTML='';searchResults.style.display='none';return;}
+    var filt=allThings.filter(function(t){
+      return (t.name&&t.name.toLowerCase().includes(q))||(t.description&&t.description.toLowerCase().includes(q));
     });
-    if (!filtered.length) {
-      searchResults.innerHTML = '<div class="search-item">No matches found</div>';
-      searchResults.style.display = 'block';
+    if(!filt.length){
+      searchResults.innerHTML='<div class="search-item">No matches found</div>';
+      searchResults.style.display='block';
     } else {
-      var itemsHtml = filtered.map(function(t) {
-        return (
-          '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
-          (t.name || 'No name') +
-          '</div>'
-        );
+      searchResults.innerHTML=filt.map(function(t){
+        return '<div class="search-item" data-id="'+t['@iot.id']+'">'+(t.name||'No name')+'</div>';
       }).join('');
-      searchResults.innerHTML = itemsHtml;
-      searchResults.style.display = 'block';
+      searchResults.style.display='block';
     }
   });
-
-  searchResults.addEventListener('click', function(e) {
-    if (e.target && e.target.classList.contains('search-item')) {
-      var thingId = e.target.getAttribute('data-id');
-      var clickedThing = allThings.find(function(t) {
-        return t['@iot.id'].toString() === thingId;
-      });
-      if (clickedThing) {
-        var tile = tileById[thingId];
-        if (tile) {
-          tile.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+  searchResults.addEventListener('click',function(e){
+    if(e.target.classList.contains('search-item')){
+      var id=e.target.getAttribute('data-id'),
+          t=allThings.find(function(x){return x['@iot.id'].toString()===id;});
+      if(t){
+        var tile=tileById[id];
+        tile&&tile.scrollIntoView({behavior:'smooth',block:'start'});
       }
-      searchResults.innerHTML = '';
-      searchResults.style.display = 'none';
-      searchInput.value = '';
+      searchResults.innerHTML='';searchResults.style.display='none';searchInput.value='';
     }
   });
   </script>

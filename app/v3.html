@@ -110,7 +110,8 @@
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(map);
 
-  function drawGraph(containerId, data, datastreamName, unitSymbol) {
+  // now accepts optional acceptable range, plus tooltip
+  function drawGraph(containerId, data, datastreamName, unitSymbol, rangeMin, rangeMax) {
     var containerElem = document.getElementById(containerId);
     containerElem.innerHTML = '';
     var parentWidth = containerElem.parentNode.offsetWidth;
@@ -139,6 +140,7 @@
       .append('svg')
       .attr('width',  width + margin.left + margin.right)
       .attr('height', height + margin.top + margin.bottom)
+      .attr('overflow', 'visible')  <!-- added overflow visible here -->
       .append('g')
       .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
 
@@ -149,6 +151,7 @@
 
     var dateDomain = x.domain();
     var formatDate = d3.timeFormat('%m/%d/%Y');
+    var formatTime = d3.timeFormat('%H:%M:%S');
     var dateRangeLabel =
       'Time (' + formatDate(dateDomain[0]) + ' - ' + formatDate(dateDomain[1]) + ')';
 
@@ -184,13 +187,55 @@
       .x(function(d) { return x(d.date); })
       .y(function(d) { return y(d.value); });
 
-    svg
-      .append('path')
-      .datum(parsedData)
-      .attr('fill', 'none')
-      .attr('stroke', '#0074D9')
-      .attr('stroke-width', 1.5)
-      .attr('d', line);
+    // draw segments colored by acceptable range if provided
+    if (typeof rangeMin !== 'undefined' && typeof rangeMax !== 'undefined') {
+      parsedData.slice(1).forEach(function(d, i) {
+        var seg = [ parsedData[i], d ];
+        svg.append('path')
+          .datum(seg)
+          .attr('fill', 'none')
+          .attr('stroke', (d.value >= rangeMin && d.value <= rangeMax) ? '#007bff' : '#ff6961')
+          .attr('stroke-width', 1.5)
+          .attr('d', line);
+      });
+    } else {
+      svg
+        .append('path')
+        .datum(parsedData)
+        .attr('fill', 'none')
+        .attr('stroke', '#0074D9')
+        .attr('stroke-width', 1.5)
+        .attr('d', line);
+    }
+
+    // tooltip implementation
+    var focus = svg.append('g').style('display', 'none');
+    focus.append('rect')
+      .attr('x', 4).attr('y', -30)
+      .attr('width', 140).attr('height', 40)
+      .attr('fill', 'white').attr('stroke', '#ccc')
+      .attr('rx', 4).attr('ry', 4).attr('opacity', 0.9);
+    focus.append('circle').attr('r', 3).attr('fill', '#007bff');
+    focus.append('text').attr('font-size', '10px');
+    svg.append('rect')
+      .attr('width', width).attr('height', height)
+      .attr('fill', 'none').attr('pointer-events', 'all')
+      .on('mouseover', function() { focus.style('display', null); })
+      .on('mouseout',  function() { focus.style('display', 'none'); })
+      .on('mousemove', function() {
+        var bisect = d3.bisector(function(d) { return d.date; }).left;
+        var mx = d3.mouse(this)[0], x0 = x.invert(mx);
+        var i = bisect(parsedData, x0, 1), d0 = parsedData[i-1], d1 = parsedData[i] || d0;
+        var d = x0 - d0.date > d1.date - x0 ? d1 : d0;
+        focus.attr('transform', 'translate(' + x(d.date) + ',' + y(d.value) + ')');
+        focus.select('text').text('')
+          .append('tspan')
+            .attr('x', 8).attr('dy', '-1.5em')
+            .text('Time: ' + formatDate(d.date) + ' ' + formatTime(d.date))
+          .append('tspan')
+            .attr('x', 8).attr('dy', '1.5em')
+            .text('Value: ' + d.value + ' ' + unitSymbol);
+      });
 
     d3
       .select('#' + containerId)
@@ -203,7 +248,8 @@
   var markersById = {};
   var allThings = [];
 
-  fetch('https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things?$expand=Locations,Datastreams')
+  // expand to include observed property
+  fetch('https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things?$expand=Locations,Datastreams($expand=ObservedProperty)')
     .then(function(response) {
       return response.json();
     })
@@ -261,7 +307,8 @@
                 dsDiv.style.marginBottom = '8px';
                 container.appendChild(dsDiv);
 
-                var dsName = ds.name || 'Unknown';
+                // use observed property name
+                var dsName = (ds.ObservedProperty && ds.ObservedProperty.name) || ds.name || 'Unknown';
                 var dsButton = document.createElement('button');
                 dsButton.textContent = 'Load Data (' + dsName + ')';
                 dsButton.style.marginRight = '4px';
@@ -296,14 +343,14 @@
                         if (recentObs.length > 0) {
                           var symbol = (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
                           var lastValue = recentObs[recentObs.length - 1].result;
-
+                          var rangeMin, rangeMax;
                           if (
                             ds.properties &&
                             ds.properties.acceptableRange &&
                             ds.properties.acceptableRange.length === 2
                           ) {
-                            var rangeMin = ds.properties.acceptableRange[0];
-                            var rangeMax = ds.properties.acceptableRange[1];
+                            rangeMin = ds.properties.acceptableRange[0];
+                            rangeMax = ds.properties.acceptableRange[1];
                             if (lastValue >= rangeMin && lastValue <= rangeMax) {
                               graphDiv.style.borderColor = '#007bff';
                             } else {
@@ -311,7 +358,7 @@
                             }
                           }
                           graphDiv.style.display = 'block';
-                          drawGraph(graphDivId, recentObs, dsName, symbol);
+                          drawGraph(graphDivId, recentObs, dsName, symbol, rangeMin, rangeMax);
                         }
                       }
                     })
