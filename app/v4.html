@@ -122,8 +122,8 @@
     containerElem.innerHTML = '';
     var containerWidth = containerElem.clientWidth - 50;
     var margin = { top: 10, right: 30, bottom: 30, left: 55 },
-      width = containerWidth - margin.left - margin.right,
-      height = 150 - margin.top - margin.bottom;
+        width = containerWidth - margin.left - margin.right,
+        height = 150 - margin.top - margin.bottom;
 
     var parsedData = data
       .map(function(d) { return { date: new Date(d.phenomenonTime), value: +d.result }; })
@@ -177,15 +177,42 @@
       .x(function(d) { return x(d.date); })
       .y(function(d) { return y(d.value); });
 
+    /* ---------- fixed segment-by-segment colouring ---------- */
     if (rangeMin != null && rangeMax != null) {
-      parsedData.slice(1).forEach(function(d, i) {
-        svg.append('path')
-          .datum([parsedData[i], d])
-          .attr('fill', 'none')
-          .attr('stroke', (d.value >= rangeMin && d.value <= rangeMax) ? '#007bff' : '#ff6961')
-          .attr('stroke-width', 1.5)
-          .attr('d', line);
-      });
+      for (var i = 1; i < parsedData.length; i++) {
+        var p0 = parsedData[i - 1];
+        var p1 = parsedData[i];
+        var in0 = p0.value >= rangeMin && p0.value <= rangeMax;
+        var in1 = p1.value >= rangeMin && p1.value <= rangeMax;
+
+        // helper to draw a simple segment
+        function drawSeg(a, b, inside) {
+          svg.append('path')
+            .datum([a, b])
+            .attr('fill', 'none')
+            .attr('stroke', inside ? '#007bff' : '#ff6961')
+            .attr('stroke-width', 1.5)
+            .attr('d', line);
+        }
+
+        // same status → single segment
+        if (in0 === in1) {
+          drawSeg(p0, p1, in0);
+        } else { // status differs → split at boundary intersection
+          var boundaryValue;
+          if ((p0.value < rangeMin && p1.value > rangeMin) ||
+              (p0.value > rangeMin && p1.value < rangeMin)) {
+            boundaryValue = rangeMin;
+          } else {
+            boundaryValue = rangeMax;
+          }
+          var t = (boundaryValue - p0.value) / (p1.value - p0.value);
+          var interDate = new Date(p0.date.getTime() + t * (p1.date.getTime() - p0.date.getTime()));
+          var midPoint = { date: interDate, value: boundaryValue };
+          drawSeg(p0, midPoint, in0);
+          drawSeg(midPoint, p1, in1);
+        }
+      }
     } else {
       svg.append('path')
         .datum(parsedData)
@@ -194,6 +221,7 @@
         .attr('stroke-width', 1.5)
         .attr('d', line);
     }
+    /* ------------------------------------------------------- */
 
     var focus = svg.append('g').style('display', 'none');
     focus.append('rect')
@@ -230,7 +258,7 @@
       .text(datastreamName);
   }
 
-  var thingsEndpoint = 
+  var thingsEndpoint =
     'https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things' +
     '?$expand=Locations,Datastreams($expand=ObservedProperty)';
   var thingsContainer = document.getElementById('things-container');

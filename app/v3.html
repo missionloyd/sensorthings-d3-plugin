@@ -117,8 +117,8 @@
     var parentWidth = containerElem.parentNode.offsetWidth;
     var containerWidth = parentWidth - 20;
     var margin = { top: 10, right: 30, bottom: 30, left: 55 },
-      width = containerWidth - margin.left - margin.right,
-      height = 150 - margin.top - margin.bottom;
+        width = containerWidth - margin.left - margin.right,
+        height = 150 - margin.top - margin.bottom;
 
     var parsedData = data
       .map(function(d) {
@@ -187,17 +187,40 @@
       .x(function(d) { return x(d.date); })
       .y(function(d) { return y(d.value); });
 
-    // draw segments colored by acceptable range if provided
-    if (typeof rangeMin !== 'undefined' && typeof rangeMax !== 'undefined') {
-      parsedData.slice(1).forEach(function(d, i) {
-        var seg = [ parsedData[i], d ];
-        svg.append('path')
-          .datum(seg)
-          .attr('fill', 'none')
-          .attr('stroke', (d.value >= rangeMin && d.value <= rangeMax) ? '#007bff' : '#ff6961')
-          .attr('stroke-width', 1.5)
-          .attr('d', line);
-      });
+    /* ----- precise colouring of each in/out segment ----- */
+    if (rangeMin != null && rangeMax != null) {
+      for (var i = 1; i < parsedData.length; i++) {
+        var p0 = parsedData[i - 1];
+        var p1 = parsedData[i];
+        var in0 = p0.value >= rangeMin && p0.value <= rangeMax;
+        var in1 = p1.value >= rangeMin && p1.value <= rangeMax;
+
+        function drawSeg(a, b, inside) {
+          svg.append('path')
+            .datum([a, b])
+            .attr('fill', 'none')
+            .attr('stroke', inside ? '#007bff' : '#ff6961')
+            .attr('stroke-width', 1.5)
+            .attr('d', line);
+        }
+
+        if (in0 === in1) {
+          drawSeg(p0, p1, in0);
+        } else {
+          var boundaryValue;
+          if ((p0.value < rangeMin && p1.value > rangeMin) ||
+              (p0.value > rangeMin && p1.value < rangeMin)) {
+            boundaryValue = rangeMin;
+          } else {
+            boundaryValue = rangeMax;
+          }
+          var t = (boundaryValue - p0.value) / (p1.value - p0.value);
+          var interDate = new Date(p0.date.getTime() + t * (p1.date.getTime() - p0.date.getTime()));
+          var mid = { date: interDate, value: boundaryValue };
+          drawSeg(p0, mid, in0);
+          drawSeg(mid, p1, in1);
+        }
+      }
     } else {
       svg
         .append('path')
@@ -207,8 +230,8 @@
         .attr('stroke-width', 1.5)
         .attr('d', line);
     }
+    /* ---------------------------------------------------- */
 
-    // tooltip implementation
     var focus = svg.append('g').style('display', 'none');
     focus.append('rect')
       .attr('x', 4).attr('y', -30)
