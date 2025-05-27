@@ -18,16 +18,27 @@
     background: white;
     padding: 6px;
     border-radius: 4px;
-    width: 250px;
     box-shadow: 0 0 6px rgba(0,0,0,0.15);
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: auto;
+    max-width: calc(100vw - 20px);
   }
   #search-input {
-    width: 100%;
+    flex: 1 1 160px;
     box-sizing: border-box;
+    padding: 4px;
+    min-width: 250px;
+  }
+  #type-filter {
+    flex: 0 0 140px;
     padding: 4px;
   }
   #search-results {
-    margin-top: 4px;
+    flex-basis: 100%;
+    width: 100%;
     max-height: 200px;
     overflow-y: auto;
     border: 1px solid #ccc;
@@ -83,7 +94,7 @@
     gap: 10px;
   }
   .graph-container {
-    border: 1px solid #ccc;
+    border: 2px solid #007bff;
     border-radius: 4px;
     padding: 6px;
     width: 300px;
@@ -105,8 +116,11 @@
     <input
       type="text"
       id="search-input"
-      placeholder="Search name or description..."
+      placeholder="Search name, description, or property..."
     />
+    <select id="type-filter">
+      <option value="">All Types</option>
+    </select>
     <div id="search-results"></div>
   </div>
 
@@ -114,8 +128,23 @@
 
   <script src="https://d3js.org/d3.v4.min.js"></script>
   <script>
+  /* ---------- configurable variables ---------- */
+  var BASE_URL = 'https://wyseason.uwyo.edu/sta/v1.1';
+  var API_KEY = null;
+  var MANAGER_FILTER = null;
+  /* -------------------------------------------- */
+
+  function apiFetch(url) {
+    var opts = {};
+    if (API_KEY) {
+      opts.headers = { 'x-api-key': API_KEY };
+    }
+    return fetch(url, opts);
+  }
+
   var allThings = [];
   var tileById = {};
+  var allTypes = new Set();
 
   function drawGraph(containerId, data, datastreamName, unitSymbol, rangeMin, rangeMax) {
     var containerElem = document.getElementById(containerId);
@@ -177,7 +206,6 @@
       .x(function(d) { return x(d.date); })
       .y(function(d) { return y(d.value); });
 
-    /* ---------- fixed segment-by-segment colouring ---------- */
     if (rangeMin != null && rangeMax != null) {
       for (var i = 1; i < parsedData.length; i++) {
         var p0 = parsedData[i - 1];
@@ -185,7 +213,6 @@
         var in0 = p0.value >= rangeMin && p0.value <= rangeMax;
         var in1 = p1.value >= rangeMin && p1.value <= rangeMax;
 
-        // helper to draw a simple segment
         function drawSeg(a, b, inside) {
           svg.append('path')
             .datum([a, b])
@@ -195,19 +222,15 @@
             .attr('d', line);
         }
 
-        // same status → single segment
         if (in0 === in1) {
           drawSeg(p0, p1, in0);
-        } else { // status differs → split at boundary intersection
-          var boundaryValue;
-          if ((p0.value < rangeMin && p1.value > rangeMin) ||
-              (p0.value > rangeMin && p1.value < rangeMin)) {
-            boundaryValue = rangeMin;
-          } else {
-            boundaryValue = rangeMax;
-          }
+        } else {
+          var boundaryValue =
+            ((p0.value < rangeMin && p1.value > rangeMin) ||
+             (p0.value > rangeMin && p1.value < rangeMin)) ? rangeMin : rangeMax;
           var t = (boundaryValue - p0.value) / (p1.value - p0.value);
-          var interDate = new Date(p0.date.getTime() + t * (p1.date.getTime() - p0.date.getTime()));
+          var interDate = new Date(p0.date.getTime() +
+            t * (p1.date.getTime() - p0.date.getTime()));
           var midPoint = { date: interDate, value: boundaryValue };
           drawSeg(p0, midPoint, in0);
           drawSeg(midPoint, p1, in1);
@@ -221,12 +244,10 @@
         .attr('stroke-width', 1.5)
         .attr('d', line);
     }
-    /* ------------------------------------------------------- */
 
     var focus = svg.append('g').style('display', 'none');
     focus.append('rect')
-      .attr('x', 4).attr('y', -30)
-      .attr('width', 140).attr('height', 40)
+      .attr('x', 4).attr('y', -30).attr('width', 140).attr('height', 40)
       .attr('fill', 'white').attr('stroke', '#ccc').attr('rx', 4).attr('ry', 4).attr('opacity', 0.9);
     focus.append('circle').attr('r', 3).attr('fill', '#007bff');
     focus.append('text').attr('font-size', '10px');
@@ -242,13 +263,10 @@
         var i = bisect(parsedData, x0, 1), d0 = parsedData[i-1], d1 = parsedData[i] || d0;
         var d = x0 - d0.date > d1.date - x0 ? d1 : d0;
         focus.attr('transform', 'translate(' + x(d.date) + ',' + y(d.value) + ')');
-        focus.select('text').text('');
-        focus.select('text')
-          .append('tspan')
-            .attr('x', 8).attr('dy', '-1.5em')
+        focus.select('text').text('')
+          .append('tspan').attr('x', 8).attr('dy', '-1.5em')
             .text('Time: ' + formatDate(d.date) + ' ' + formatTime(d.date))
-          .append('tspan')
-            .attr('x', 8).attr('dy', '1.5em')
+          .append('tspan').attr('x', 8).attr('dy', '1.5em')
             .text('Value: ' + d.value + ' ' + unitSymbol);
       });
 
@@ -259,7 +277,7 @@
   }
 
   var thingsEndpoint =
-    'https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things' +
+    BASE_URL + '/Projects(1)/Things' +
     '?$expand=Locations,Datastreams($expand=ObservedProperty)';
   var thingsContainer = document.getElementById('things-container');
 
@@ -273,102 +291,195 @@
       graphDiv.id = graphDivId;
       datastreamsContainer.appendChild(graphDiv);
 
-      fetch(
-        'https://wyseason.uwyo.edu/sta/v1.1/Datastreams(' +
+      apiFetch(
+        BASE_URL + '/Datastreams(' +
         ds['@iot.id'] + ')/Observations?$orderby=phenomenonTime asc'
       ).then(function(resp){ return resp.json(); })
        .then(function(obsJson){
-        var obsData = obsJson.value||[];
+        var obsData = obsJson.value || [];
         if(!obsData.length) return;
         var maxT = new Date(obsData[obsData.length-1].phenomenonTime);
-        var cutoff = new Date(maxT.getTime()-24*60*60*1000);
-        var recent = obsData.filter(function(o){ return new Date(o.phenomenonTime)>=cutoff; });
+        var cutoff = new Date(maxT.getTime() - 24*60*60*1000);
+        var recent = obsData.filter(function(o){
+          return new Date(o.phenomenonTime) >= cutoff;
+        });
         if(!recent.length) return;
-        var sym = (ds.unitOfMeasurement&&ds.unitOfMeasurement.symbol)||'';
-        var dsName = (ds.ObservedProperty&&ds.ObservedProperty.name)||ds.name||'Unknown';
+        var sym = (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
+        var dsName = (ds.ObservedProperty && ds.ObservedProperty.name) ||
+                     ds.name || 'Unknown';
         var lv = recent[recent.length-1].result;
-        var rMin,rMax;
-        if(ds.properties&&ds.properties.acceptableRange&&ds.properties.acceptableRange.length===2){
-          rMin=ds.properties.acceptableRange[0];
-          rMax=ds.properties.acceptableRange[1];
-          graphDiv.style.borderColor = (lv>=rMin&&lv<=rMax)?'#007bff':'#ff6961';
+        var rMin, rMax;
+        if(ds.properties && ds.properties.acceptableRange &&
+           ds.properties.acceptableRange.length === 2){
+          rMin = ds.properties.acceptableRange[0];
+          rMax = ds.properties.acceptableRange[1];
+          graphDiv.style.borderColor =
+            (lv >= rMin && lv <= rMax) ? '#007bff' : '#ff6961';
+        } else {
+          graphDiv.style.borderColor = '#007bff';
         }
-        drawGraph(graphDivId,recent,dsName,sym,rMin,rMax);
+        drawGraph(graphDivId, recent, dsName, sym, rMin, rMax);
       }).catch(function(err){ console.error(err); });
     });
   }
 
+  function renderTiles(data) {
+    tileById = {};
+    thingsContainer.innerHTML = '';
+    data.forEach(function(thing){
+      var tile = document.createElement('div');
+      tile.className = 'thing-tile ' + (thing.properties.active ? 'active' : 'inactive');
+      var header = document.createElement('div');
+      header.className = 'tile-header';
+      header.textContent = thing.name;
+      var detail = document.createElement('div');
+      detail.className = 'tile-detail';
+      var lat = (thing.Locations && thing.Locations[0] &&
+                 thing.Locations[0].location.coordinates ?
+                 thing.Locations[0].location.coordinates[1] : 'Unknown');
+      var lon = (thing.Locations && thing.Locations[0] &&
+                 thing.Locations[0].location.coordinates ?
+                 thing.Locations[0].location.coordinates[0] : 'Unknown');
+      detail.innerHTML =
+        '<div><span class="popup-label">Active:</span> ' +
+        (thing.properties.active ? 'Yes' : 'No') + '</div>' +
+        '<div><span class="popup-label">Location:</span> ' +
+        ((thing.Locations && thing.Locations[0].name) || 'Unknown') + '</div>' +
+        '<div><span class="popup-label">Latitude:</span> ' + lat + '</div>' +
+        '<div><span class="popup-label">Longitude:</span> ' + lon + '</div>' +
+        '<div><span class="popup-label">Host:</span> ' +
+        (thing.properties.hostName || 'N/A') + '</div>' +
+        '<div><span class="popup-label">Description:</span> ' +
+        (thing.description || 'No description') + '</div>';
+      var btn = document.createElement('button');
+      btn.className = 'refresh-button';
+      btn.textContent = 'Load Data';
+      var used = false;
+      var dsCont = document.createElement('div');
+      dsCont.className = 'datastreams-container';
+      btn.addEventListener('click', function(){
+        loadDatastreamsIntoTile(thing, dsCont);
+        if(!used){ used = true; btn.textContent = 'Refresh Data'; }
+      });
+      tile.append(header, detail, btn, dsCont);
+      thingsContainer.appendChild(tile);
+      tileById[thing['@iot.id']] = tile;
+    });
+    updateTileVisibility();
+  }
+
   function fetchAndRenderThings() {
-    fetch(thingsEndpoint)
-      .then(function(r){return r.json();})
+    apiFetch(thingsEndpoint)
+      .then(function(r){ return r.json(); })
       .then(function(json){
-        allThings=json.value||[];
-        tileById={};
-        thingsContainer.innerHTML='';
-        allThings.forEach(function(thing){
-          var tile=document.createElement('div');
-          tile.className='thing-tile '+(thing.properties.active?'active':'inactive');
-          var header=document.createElement('div');
-          header.className='tile-header';
-          header.textContent=thing.name;
-          var detail=document.createElement('div');
-          detail.className='tile-detail';
-          var lat=(thing.Locations&&thing.Locations[0]&&thing.Locations[0].location.coordinates?[thing.Locations[0].location.coordinates[1]]:'' )||'Unknown';
-          var lon=(thing.Locations&&thing.Locations[0]&&thing.Locations[0].location.coordinates?[thing.Locations[0].location.coordinates[0]]:'' )||'Unknown';
-          detail.innerHTML=
-            '<div><span class="popup-label">Active:</span> '+(thing.properties.active?'Yes':'No')+'</div>'+
-            '<div><span class="popup-label">Location:</span> '+((thing.Locations&&thing.Locations[0].name)||'Unknown')+'</div>'+
-            '<div><span class="popup-label">Latitude:</span> '+lat+'</div>'+
-            '<div><span class="popup-label">Longitude:</span> '+lon+'</div>'+
-            '<div><span class="popup-label">Host:</span> '+(thing.properties.hostName||'N/A')+'</div>'+
-            '<div><span class="popup-label">Description:</span> '+(thing.description||'No description')+'</div>';
-          var btn=document.createElement('button');
-          btn.className='refresh-button';
-          btn.textContent='Load Data';
-          var used=false;
-          var dsCont=document.createElement('div');
-          dsCont.className='datastreams-container';
-          btn.addEventListener('click',function(){
-            loadDatastreamsIntoTile(thing,dsCont);
-            if(!used){used=true;btn.textContent='Refresh Data';}
+        var data = json.value || [];
+        if (MANAGER_FILTER) {
+          data = data.filter(function(t){
+            var mgrs = (t.properties && t.properties.managers) || [];
+            return mgrs.some(function(m){ return m.name === MANAGER_FILTER; });
           });
-          tile.append(header,detail,btn,dsCont);
-          thingsContainer.appendChild(tile);
-          tileById[thing['@iot.id']]=tile;
+        }
+        allThings = data;
+        allTypes.clear();
+        data.forEach(function(t){
+          if(t.properties && t.properties.thingTypes){
+            t.properties.thingTypes.forEach(function(tp){ allTypes.add(tp); });
+          }
         });
+        populateTypeFilter();
+        renderTiles(data);
       })
       .catch(console.error);
   }
 
+  function populateTypeFilter() {
+    var sel = document.getElementById('type-filter');
+    var current = sel.value;
+    sel.innerHTML = '<option value="">All Types</option>';
+    Array.from(allTypes).sort().forEach(function(tp){
+      var opt = document.createElement('option');
+      opt.value = tp;
+      opt.textContent = tp;
+      sel.appendChild(opt);
+    });
+    sel.value = current;
+  }
+
+  function updateTileVisibility() {
+    var typeSel = document.getElementById('type-filter').value;
+    allThings.forEach(function(t){
+      var tile = tileById[t['@iot.id']];
+      if(!tile) return;
+      var show = !typeSel ||
+        (t.properties && t.properties.thingTypes &&
+         t.properties.thingTypes.includes(typeSel));
+      tile.style.display = show ? '' : 'none';
+    });
+  }
+
   fetchAndRenderThings();
 
-  var searchInput=document.getElementById('search-input'),
-      searchResults=document.getElementById('search-results');
-  searchInput.addEventListener('input',function(){
-    var q=this.value.toLowerCase().trim();
-    if(!q){searchResults.innerHTML='';searchResults.style.display='none';return;}
-    var filt=allThings.filter(function(t){
-      return (t.name&&t.name.toLowerCase().includes(q))||(t.description&&t.description.toLowerCase().includes(q));
+  var searchInput = document.getElementById('search-input'),
+      searchResults = document.getElementById('search-results'),
+      typeFilter = document.getElementById('type-filter');
+
+  searchInput.addEventListener('input', handleSearch);
+  typeFilter.addEventListener('change', function(){
+    updateTileVisibility();
+    handleSearch();
+  });
+
+  function handleSearch() {
+    var q = searchInput.value.toLowerCase().trim();
+    var typeSel = typeFilter.value;
+    if(!q && !typeSel){
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+      return;
+    }
+    var filt = allThings.filter(function(t){
+      if(typeSel &&
+         !(t.properties && t.properties.thingTypes &&
+           t.properties.thingTypes.includes(typeSel))) {
+        return false;
+      }
+      if(!q) return true;
+      var nameMatch = t.name && t.name.toLowerCase().includes(q);
+      var descMatch = t.description && t.description.toLowerCase().includes(q);
+      var propMatch = false;
+      if(t.properties){
+        propMatch = Object.keys(t.properties).some(function(k){
+          var v = t.properties[k];
+          var s = (Array.isArray(v) ? v.join(' ') : v).toString().toLowerCase();
+          return s.includes(q);
+        });
+      }
+      return nameMatch || descMatch || propMatch;
     });
     if(!filt.length){
-      searchResults.innerHTML='<div class="search-item">No matches found</div>';
-      searchResults.style.display='block';
+      searchResults.innerHTML = '<div class="search-item">No matches found</div>';
+      searchResults.style.display = 'block';
     } else {
-      searchResults.innerHTML=filt.map(function(t){
-        return '<div class="search-item" data-id="'+t['@iot.id']+'">'+(t.name||'No name')+'</div>';
+      searchResults.innerHTML = filt.map(function(t){
+        return '<div class="search-item" data-id="' +
+               t['@iot.id'] + '">' + (t.name || 'No name') + '</div>';
       }).join('');
-      searchResults.style.display='block';
+      searchResults.style.display = 'block';
     }
-  });
-  searchResults.addEventListener('click',function(e){
-    if(e.target.classList.contains('search-item')){
-      var id=e.target.getAttribute('data-id'),
-          t=allThings.find(function(x){return x['@iot.id'].toString()===id;});
-      if(t){
-        var tile=tileById[id];
-        tile&&tile.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+
+  searchResults.addEventListener('click', function(e){
+    if(e.target && e.target.classList.contains('search-item')){
+      var id = e.target.getAttribute('data-id');
+      var tile = tileById[id];
+      if(tile){
+        tile.scrollIntoView({behavior:'smooth', block:'start'});
+        tile.classList.add('highlight');
+        setTimeout(function(){ tile.classList.remove('highlight'); }, 1000);
       }
-      searchResults.innerHTML='';searchResults.style.display='none';searchInput.value='';
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+      searchInput.value = '';
     }
   });
   </script>

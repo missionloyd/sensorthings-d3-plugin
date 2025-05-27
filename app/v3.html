@@ -51,7 +51,7 @@
   }
   .graph-container {
     margin-top: 10px;
-    border: 1px solid #ccc;
+    border: 2px solid #007bff;
     border-radius: 4px;
     padding: 6px;
     display: none;
@@ -64,16 +64,18 @@
     background: white;
     padding: 6px;
     border-radius: 4px;
-    width: 200px;
+    width: 280px;
     box-shadow: 0 0 6px rgba(0,0,0,0.15);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
-  #search-input {
+  #search-input, #type-filter {
     width: 100%;
     box-sizing: border-box;
     padding: 4px;
   }
   #search-results {
-    margin-top: 4px;
     max-height: 200px;
     overflow-y: auto;
     border: 1px solid #ccc;
@@ -95,8 +97,11 @@
     <input
       type="text"
       id="search-input"
-      placeholder="Search name or description..."
+      placeholder="Search name, description, or property..."
     />
+    <select id="type-filter">
+      <option value="">All Types</option>
+    </select>
     <div id="search-results"></div>
   </div>
   <div id="map"></div>
@@ -104,13 +109,26 @@
   <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
   <script src="https://d3js.org/d3.v4.min.js"></script>
   <script>
+  /* ---------- configurable variables ---------- */
+  var BASE_URL = 'https://wyseason.uwyo.edu/sta/v1.1';
+  var API_KEY = null;
+  var MANAGER_FILTER = null;
+  /* -------------------------------------------- */
+
   var map = L.map('map');
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(map);
 
-  // now accepts optional acceptable range, plus tooltip
+  function apiFetch(url) {
+    var opts = {};
+    if (API_KEY) {
+      opts.headers = { 'x-api-key': API_KEY };
+    }
+    return fetch(url, opts);
+  }
+
   function drawGraph(containerId, data, datastreamName, unitSymbol, rangeMin, rangeMax) {
     var containerElem = document.getElementById(containerId);
     containerElem.innerHTML = '';
@@ -121,31 +139,22 @@
         height = 150 - margin.top - margin.bottom;
 
     var parsedData = data
-      .map(function(d) {
-        return {
-          date: new Date(d.phenomenonTime),
-          value: +d.result
-        };
-      })
-      .sort(function(a, b) {
-        return a.date - b.date;
-      });
+      .map(function(d) { return { date: new Date(d.phenomenonTime), value: +d.result }; })
+      .sort(function(a, b) { return a.date - b.date; });
 
     var minVal = d3.min(parsedData, function(d) { return d.value; });
     var maxVal = d3.max(parsedData, function(d) { return d.value; });
     var lowerBound = Math.min(0, minVal);
 
-    var svg = d3
-      .select('#' + containerId)
+    var svg = d3.select('#' + containerId)
       .append('svg')
       .attr('width',  width + margin.left + margin.right)
       .attr('height', height + margin.top + margin.bottom)
-      .attr('overflow', 'visible')  <!-- added overflow visible here -->
+      .attr('overflow', 'visible')
       .append('g')
       .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
 
-    var x = d3
-      .scaleTime()
+    var x = d3.scaleTime()
       .domain(d3.extent(parsedData, function(d) { return d.date; }))
       .range([0, width]);
 
@@ -155,26 +164,22 @@
     var dateRangeLabel =
       'Time (' + formatDate(dateDomain[0]) + ' - ' + formatDate(dateDomain[1]) + ')';
 
-    var xAxis = svg
-      .append('g')
+    var xAxis = svg.append('g')
       .attr('transform', 'translate(0,' + height + ')')
       .call(d3.axisBottom(x).ticks(4));
-    xAxis
-      .append('text')
+    xAxis.append('text')
       .attr('fill', 'black')
       .attr('x', width / 2)
       .attr('y', margin.bottom)
       .style('text-anchor', 'middle')
       .text(dateRangeLabel);
 
-    var y = d3
-      .scaleLinear()
+    var y = d3.scaleLinear()
       .domain([ lowerBound, maxVal ])
       .range([ height, 0 ]);
 
     var yAxis = svg.append('g').call(d3.axisLeft(y).ticks(4));
-    yAxis
-      .append('text')
+    yAxis.append('text')
       .attr('fill', 'black')
       .attr('transform', 'rotate(-90)')
       .attr('y', -45)
@@ -182,16 +187,13 @@
       .style('text-anchor', 'middle')
       .text(unitSymbol);
 
-    var line = d3
-      .line()
+    var line = d3.line()
       .x(function(d) { return x(d.date); })
       .y(function(d) { return y(d.value); });
 
-    /* ----- precise colouring of each in/out segment ----- */
     if (rangeMin != null && rangeMax != null) {
       for (var i = 1; i < parsedData.length; i++) {
-        var p0 = parsedData[i - 1];
-        var p1 = parsedData[i];
+        var p0 = parsedData[i - 1], p1 = parsedData[i];
         var in0 = p0.value >= rangeMin && p0.value <= rangeMax;
         var in1 = p1.value >= rangeMin && p1.value <= rangeMax;
 
@@ -207,35 +209,29 @@
         if (in0 === in1) {
           drawSeg(p0, p1, in0);
         } else {
-          var boundaryValue;
-          if ((p0.value < rangeMin && p1.value > rangeMin) ||
-              (p0.value > rangeMin && p1.value < rangeMin)) {
-            boundaryValue = rangeMin;
-          } else {
-            boundaryValue = rangeMax;
-          }
+          var boundaryValue =
+            ((p0.value < rangeMin && p1.value > rangeMin) ||
+             (p0.value > rangeMin && p1.value < rangeMin)) ? rangeMin : rangeMax;
           var t = (boundaryValue - p0.value) / (p1.value - p0.value);
-          var interDate = new Date(p0.date.getTime() + t * (p1.date.getTime() - p0.date.getTime()));
+          var interDate = new Date(p0.date.getTime() +
+            t * (p1.date.getTime() - p0.date.getTime()));
           var mid = { date: interDate, value: boundaryValue };
           drawSeg(p0, mid, in0);
           drawSeg(mid, p1, in1);
         }
       }
     } else {
-      svg
-        .append('path')
+      svg.append('path')
         .datum(parsedData)
         .attr('fill', 'none')
         .attr('stroke', '#0074D9')
         .attr('stroke-width', 1.5)
         .attr('d', line);
     }
-    /* ---------------------------------------------------- */
 
     var focus = svg.append('g').style('display', 'none');
     focus.append('rect')
-      .attr('x', 4).attr('y', -30)
-      .attr('width', 140).attr('height', 40)
+      .attr('x', 4).attr('y', -30).attr('width', 140).attr('height', 40)
       .attr('fill', 'white').attr('stroke', '#ccc')
       .attr('rx', 4).attr('ry', 4).attr('opacity', 0.9);
     focus.append('circle').attr('r', 3).attr('fill', '#007bff');
@@ -252,16 +248,13 @@
         var d = x0 - d0.date > d1.date - x0 ? d1 : d0;
         focus.attr('transform', 'translate(' + x(d.date) + ',' + y(d.value) + ')');
         focus.select('text').text('')
-          .append('tspan')
-            .attr('x', 8).attr('dy', '-1.5em')
+          .append('tspan').attr('x', 8).attr('dy', '-1.5em')
             .text('Time: ' + formatDate(d.date) + ' ' + formatTime(d.date))
-          .append('tspan')
-            .attr('x', 8).attr('dy', '1.5em')
+          .append('tspan').attr('x', 8).attr('dy', '1.5em')
             .text('Value: ' + d.value + ' ' + unitSymbol);
       });
 
-    d3
-      .select('#' + containerId)
+    d3.select('#' + containerId)
       .insert('div', ':first-child')
       .style('font-size', '12px')
       .style('font-weight', 'bold')
@@ -270,28 +263,36 @@
 
   var markersById = {};
   var allThings = [];
+  var allTypes = new Set();
 
-  // expand to include observed property
-  fetch('https://wyseason.uwyo.edu/sta/v1.1/Projects(1)/Things?$expand=Locations,Datastreams($expand=ObservedProperty)')
-    .then(function(response) {
-      return response.json();
-    })
+  apiFetch(BASE_URL +
+    '/Projects(1)/Things?$expand=Locations,Datastreams($expand=ObservedProperty)')
+    .then(function(response) { return response.json(); })
     .then(function(jsonData) {
       var data = jsonData.value || [];
+      if (MANAGER_FILTER) {
+        data = data.filter(function(t) {
+          var mgrs = (t.properties && t.properties.managers) || [];
+          return mgrs.some(function(m) { return m.name === MANAGER_FILTER; });
+        });
+      }
+
       allThings = data;
       var latlngs = [];
 
       data.forEach(function(thing) {
+        if (thing.properties && thing.properties.thingTypes) {
+          thing.properties.thingTypes.forEach(function(tp) { allTypes.add(tp); });
+        }
+
         if (thing.Locations && thing.Locations.length > 0) {
           var coords = thing.Locations[0].location.coordinates;
-          var lat = coords[1];
-          var lon = coords[0];
+          var lat = coords[1], lon = coords[0];
           latlngs.push([lat, lon]);
 
           var markerColor = thing.properties.active ? '#007bff' : '#ff6961';
           var marker = L.circleMarker([lat, lon], {
-            color: markerColor,
-            radius: 10
+            color: markerColor, radius: 10
           }).addTo(map);
 
           var popupContent =
@@ -299,21 +300,18 @@
               '<div class="popup-header">' + thing.name + '</div>' +
               '<div class="popup-detail">' +
                 '<div><span class="popup-label">Active:</span> ' +
-                (thing.properties.active ? 'Yes' : 'No') +
-                '</div>' +
+                (thing.properties.active ? 'Yes' : 'No') + '</div>' +
                 '<div><span class="popup-label">Location:</span> ' +
-                (thing.Locations[0].name || 'Unknown') +
-                '</div>' +
+                (thing.Locations[0].name || 'Unknown') + '</div>' +
                 '<div><span class="popup-label">Latitude:</span> ' + lat + '</div>' +
                 '<div><span class="popup-label">Longitude:</span> ' + lon + '</div>' +
                 '<div><span class="popup-label">Host:</span> ' +
-                (thing.properties.hostName || 'N/A') +
-                '</div>' +
+                (thing.properties.hostName || 'N/A') + '</div>' +
                 '<div><span class="popup-label">Description:</span> ' +
-                (thing.description || 'No description available') +
-                '</div>' +
+                (thing.description || 'No description available') + '</div>' +
               '</div>' +
-              '<div id="graphs-container-' + thing['@iot.id'] + '" class="graphs-container"></div>' +
+              '<div id="graphs-container-' + thing['@iot.id'] +
+              '" class="graphs-container"></div>' +
             '</div>';
 
           marker.bindPopup(popupContent);
@@ -330,8 +328,9 @@
                 dsDiv.style.marginBottom = '8px';
                 container.appendChild(dsDiv);
 
-                // use observed property name
-                var dsName = (ds.ObservedProperty && ds.ObservedProperty.name) || ds.name || 'Unknown';
+                var dsName =
+                  (ds.ObservedProperty && ds.ObservedProperty.name) ||
+                  ds.name || 'Unknown';
                 var dsButton = document.createElement('button');
                 dsButton.textContent = 'Load Data (' + dsName + ')';
                 dsButton.style.marginRight = '4px';
@@ -350,52 +349,48 @@
                   dsButton.textContent = 'Loading...';
                   dsButton.disabled = true;
 
-                  var obsUrl = 'https://wyseason.uwyo.edu/sta/v1.1/Datastreams(' +
-                    ds['@iot.id'] + ')/Observations?$orderby=phenomenonTime asc';
+                  var obsUrl = BASE_URL + '/Datastreams(' + ds['@iot.id'] +
+                    ')/Observations?$orderby=phenomenonTime asc';
 
-                  fetch(obsUrl)
+                  apiFetch(obsUrl)
                     .then(function(resp) { return resp.json(); })
                     .then(function(obsJson) {
                       var obsData = obsJson.value || [];
                       if (obsData.length > 0) {
-                        var maxTime = new Date(obsData[obsData.length - 1].phenomenonTime);
-                        var cutoff = new Date(maxTime.getTime() - 24 * 60 * 60 * 1000);
+                        var maxTime =
+                          new Date(obsData[obsData.length - 1].phenomenonTime);
+                        var cutoff = new Date(maxTime.getTime() - 24*60*60*1000);
                         var recentObs = obsData.filter(function(o) {
                           return new Date(o.phenomenonTime) >= cutoff;
                         });
                         if (recentObs.length > 0) {
-                          var symbol = (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
+                          var symbol =
+                            (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
                           var lastValue = recentObs[recentObs.length - 1].result;
                           var rangeMin, rangeMax;
-                          if (
-                            ds.properties &&
-                            ds.properties.acceptableRange &&
-                            ds.properties.acceptableRange.length === 2
-                          ) {
+                          if (ds.properties &&
+                              ds.properties.acceptableRange &&
+                              ds.properties.acceptableRange.length === 2) {
                             rangeMin = ds.properties.acceptableRange[0];
                             rangeMax = ds.properties.acceptableRange[1];
-                            if (lastValue >= rangeMin && lastValue <= rangeMax) {
-                              graphDiv.style.borderColor = '#007bff';
-                            } else {
-                              graphDiv.style.borderColor = '#ff6961';
-                            }
+                            graphDiv.style.borderColor =
+                              (lastValue >= rangeMin && lastValue <= rangeMax)
+                                ? '#007bff' : '#ff6961';
+                          } else {
+                            graphDiv.style.borderColor = '#007bff';
                           }
                           graphDiv.style.display = 'block';
-                          drawGraph(graphDivId, recentObs, dsName, symbol, rangeMin, rangeMax);
+                          drawGraph(graphDivId, recentObs, dsName,
+                            symbol, rangeMin, rangeMax);
                         }
                       }
                     })
-                    .catch(function(err) {
-                      console.error('Error fetching observations:', err);
-                    })
+                    .catch(function(err) { console.error('Error fetching observations:', err); })
                     .finally(function() {
                       dsButton.disabled = false;
-                      if (!dataLoaded) {
-                        dataLoaded = true;
-                        dsButton.textContent = 'Refresh Data (' + dsName + ')';
-                      } else {
-                        dsButton.textContent = 'Refresh Data (' + dsName + ')';
-                      }
+                      dsButton.textContent =
+                        (dataLoaded ? 'Refresh' : 'Load') + ' Data (' + dsName + ')';
+                      dataLoaded = true;
                     });
                 });
               });
@@ -404,54 +399,96 @@
             }
           });
 
-          marker.bindTooltip(thing.name, {
-            permanent: true,
-            direction: 'right'
-          });
+          marker.bindTooltip(thing.name, { permanent: true, direction: 'right' });
         }
       });
 
-      if (latlngs.length > 0) {
-        map.fitBounds(latlngs);
-      }
+      if (latlngs.length > 0) { map.fitBounds(latlngs); }
+      populateTypeFilter();
     })
-    .catch(function(error) {
-      console.error('Error loading things data:', error);
-    });
+    .catch(function(error) { console.error('Error loading things data:', error); });
 
-  // Simple search logic
+  function populateTypeFilter() {
+    var sel = document.getElementById('type-filter');
+    Array.from(allTypes).sort().forEach(function(tp) {
+      var opt = document.createElement('option');
+      opt.value = tp;
+      opt.textContent = tp;
+      sel.appendChild(opt);
+    });
+  }
+
   var searchInput = document.getElementById('search-input');
   var searchResults = document.getElementById('search-results');
+  var typeFilter = document.getElementById('type-filter');
 
-  searchInput.addEventListener('input', function() {
-    var query = this.value.toLowerCase().trim();
-    if (!query) {
+  searchInput.addEventListener('input', handleSearch);
+  typeFilter.addEventListener('change', handleSearch);
+
+  function updateMarkerVisibility() {
+    var typeSel = typeFilter.value;
+    allThings.forEach(function(thing) {
+      var marker = markersById[thing['@iot.id']];
+      if (!marker) { return; }
+      var show = !typeSel ||
+        (thing.properties && thing.properties.thingTypes &&
+         thing.properties.thingTypes.includes(typeSel));
+      if (show && !map.hasLayer(marker)) {
+        marker.addTo(map);
+      } else if (!show && map.hasLayer(marker)) {
+        map.removeLayer(marker);
+      }
+    });
+  }
+
+  function handleSearch() {
+    updateMarkerVisibility();
+
+    var query = searchInput.value.toLowerCase().trim();
+    var typeSel = typeFilter.value;
+    if (!query && !typeSel) {
       searchResults.innerHTML = '';
       searchResults.style.display = 'none';
       return;
     }
 
     var filtered = allThings.filter(function(thing) {
-      var nameMatch = thing.name && thing.name.toLowerCase().includes(query);
-      var descMatch = thing.description && thing.description.toLowerCase().includes(query);
-      return nameMatch || descMatch;
+      if (typeSel &&
+          !(thing.properties && thing.properties.thingTypes &&
+            thing.properties.thingTypes.includes(typeSel))) {
+        return false;
+      }
+
+      if (!query) { return true; }
+
+      var nameMatch =
+        thing.name && thing.name.toLowerCase().includes(query);
+      var descMatch =
+        thing.description && thing.description.toLowerCase().includes(query);
+
+      var propMatch = false;
+      if (thing.properties) {
+        propMatch = Object.keys(thing.properties).some(function(k) {
+          var v = thing.properties[k];
+          var valStr =
+            (Array.isArray(v) ? v.join(' ') : v).toString().toLowerCase();
+          return valStr.includes(query);
+        });
+      }
+      return nameMatch || descMatch || propMatch;
     });
 
     if (!filtered.length) {
       searchResults.innerHTML = '<div class="search-item">No matches found</div>';
       searchResults.style.display = 'block';
     } else {
-      var itemsHtml = filtered.map(function(t) {
-        return (
-          '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
-            (t.name || 'No name') +
-          '</div>'
-        );
+      searchResults.innerHTML = filtered.map(function(t) {
+        return '<div class="search-item" data-id="' + t['@iot.id'] + '">' +
+               (t.name || 'No name') + '</div>';
       }).join('');
-      searchResults.innerHTML = itemsHtml;
       searchResults.style.display = 'block';
     }
-  });
+  }
 
   searchResults.addEventListener('click', function(e) {
     if (e.target && e.target.classList.contains('search-item')) {
@@ -459,13 +496,12 @@
       var clickedThing = allThings.find(function(t) {
         return t['@iot.id'].toString() === thingId;
       });
-      if (clickedThing && clickedThing.Locations && clickedThing.Locations.length > 0) {
+      if (clickedThing && clickedThing.Locations &&
+          clickedThing.Locations.length > 0) {
         var coords = clickedThing.Locations[0].location.coordinates;
         map.flyTo([coords[1], coords[0]], 13);
         var m = markersById[clickedThing['@iot.id']];
-        if (m) {
-          m.openPopup();
-        }
+        if (m) { m.openPopup(); }
       }
       searchResults.innerHTML = '';
       searchResults.style.display = 'none';
