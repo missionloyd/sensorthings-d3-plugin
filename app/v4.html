@@ -1,487 +1,396 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Sensor Tiles with Search</title>
   <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    font-family: sans-serif;
+  html,body{
+    margin:0;
+    padding:0;
+    font-family:sans-serif;
   }
-  #search-container {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    z-index: 9999;
-    background: white;
-    padding: 6px;
-    border-radius: 4px;
-    box-shadow: 0 0 6px rgba(0,0,0,0.15);
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 4px;
-    width: auto;
-    max-width: calc(100vw - 20px);
+  #search-container{
+    position:absolute;
+    top:10px;
+    left:10px;
+    z-index:9999;
+    background:white;
+    padding:6px;
+    border-radius:4px;
+    box-shadow:0 0 6px rgba(0,0,0,0.15);
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px;
+    width:auto;
+    max-width:calc(100vw - 20px);
   }
-  #search-input {
-    flex: 1 1 160px;
-    box-sizing: border-box;
-    padding: 4px;
-    min-width: 250px;
+  #search-input{
+    flex:1 1 160px;
+    box-sizing:border-box;
+    padding:4px;
+    min-width:250px;
   }
-  #type-filter {
-    flex: 0 0 140px;
-    padding: 4px;
+  #type-filter,#info-btn{
+    flex:0 0 140px;
+    padding:4px;
+    box-sizing:border-box;
   }
-  #search-results {
-    flex-basis: 100%;
-    width: 100%;
-    max-height: 200px;
-    overflow-y: auto;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    display: none;
+  #search-results{
+    flex-basis:100%;
+    width:100%;
+    max-height:200px;
+    overflow-y:auto;
+    border:1px solid #ccc;
+    border-radius:4px;
+    display:none;
   }
-  .search-item {
-    padding: 4px;
-    cursor: pointer;
-    border-bottom: 1px solid #ddd;
+  .search-item{
+    padding:4px;
+    cursor:pointer;
+    border-bottom:1px solid #ddd;
   }
-  .search-item:hover {
-    background: #f0f0f0;
+  .search-item:hover{background:#f0f0f0;}
+  #things-container{
+    margin-top:80px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    padding:10px;
   }
-  #things-container {
-    margin-top: 60px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 10px;
+  .thing-tile{
+    border:2px solid #ccc;
+    border-radius:6px;
+    padding:10px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
   }
-  .thing-tile {
-    border: 2px solid #ccc;
-    border-radius: 6px;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .thing-tile.active{border-color:#007bff;}
+  .thing-tile.inactive{border-color:#ff6961;}
+  .tile-header{font-weight:bold;font-size:16px;}
+  .tile-detail{font-size:14px;line-height:1.4;display:flex;flex-direction:column;gap:2px;}
+  .popup-label{font-weight:bold;}
+  .datastreams-container{display:flex;flex-wrap:wrap;gap:10px;}
+  .graph-container{
+    border:2px solid #007bff;
+    border-radius:4px;
+    padding:6px;
+    width:300px;
+    max-width:300px;
   }
-  .thing-tile.active {
-    border-color: #007bff;
-  }
-  .thing-tile.inactive {
-    border-color: #ff6961;
-  }
-  .tile-header {
-    font-weight: bold;
-    font-size: 16px;
-  }
-  .tile-detail {
-    font-size: 14px;
-    line-height: 1.4;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .popup-label {
-    font-weight: bold;
-  }
-  .datastreams-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  .graph-container {
-    border: 2px solid #007bff;
-    border-radius: 4px;
-    padding: 6px;
-    width: 300px;
-    max-width: 300px;
-  }
-  .graph-container > svg {
-    margin-top: 8px;
-  }
-  .refresh-button {
-    width: 120px;
-    padding: 4px;
-    font-size: 14px;
-    cursor: pointer;
-  }
+  .graph-container>svg{margin-top:8px;}
+  .refresh-button{width:120px;padding:4px;font-size:14px;cursor:pointer;}
   </style>
 </head>
 <body>
   <div id="search-container">
-    <input
-      type="text"
-      id="search-input"
-      placeholder="Search name, description, or property..."
-    />
-    <select id="type-filter">
-      <option value="">All Types</option>
-    </select>
+    <input type="text" id="search-input" placeholder="Search name, description, or property..."/>
+    <select id="type-filter"><option value="">All Types</option></select>
+    <button id="info-btn" title="Legend">Color Legend</button>
     <div id="search-results"></div>
   </div>
-
   <div id="things-container"></div>
 
   <script src="https://d3js.org/d3.v4.min.js"></script>
   <script>
   /* ---------- configurable variables ---------- */
-  var BASE_URL = 'https://wyseason.uwyo.edu/sta/v1.1';
-  var API_KEY = null;
-  var MANAGER_FILTER = null;
+  var BASE_URL='https://wyseason.uwyo.edu/sta/v1.1';
+  var API_KEY=null;
+  var MANAGER_FILTER=null;
   /* -------------------------------------------- */
 
-  function apiFetch(url) {
-    var opts = {};
-    if (API_KEY) {
-      opts.headers = { 'x-api-key': API_KEY };
-    }
-    return fetch(url, opts);
+  var initialTypeParam='';
+  function apiFetch(url){
+    var opts={};
+    if(API_KEY)opts.headers={'x-api-key':API_KEY};
+    return fetch(url,opts);
   }
 
-  var allThings = [];
-  var tileById = {};
-  var allTypes = new Set();
+  var allThings=[];
+  var tileById={};
+  var allTypes=new Set();
 
-  function drawGraph(containerId, data, datastreamName, unitSymbol, rangeMin, rangeMax) {
-    var containerElem = document.getElementById(containerId);
-    containerElem.innerHTML = '';
-    var containerWidth = containerElem.clientWidth - 50;
-    var margin = { top: 10, right: 30, bottom: 30, left: 55 },
-        width = containerWidth - margin.left - margin.right,
-        height = 150 - margin.top - margin.bottom;
+  function drawGraph(containerId,data,datastreamName,unitSymbol,rangeMin,rangeMax){
+    var containerElem=document.getElementById(containerId);
+    containerElem.innerHTML='';
+    var containerWidth=containerElem.clientWidth-50;
+    var margin={top:10,right:30,bottom:30,left:55},
+        width=containerWidth-margin.left-margin.right,
+        height=150-margin.top-margin.bottom;
 
-    var parsedData = data
-      .map(function(d) { return { date: new Date(d.phenomenonTime), value: +d.result }; })
-      .sort(function(a, b) { return a.date - b.date; });
+    var parsedData=data.map(function(d){return{date:new Date(d.phenomenonTime),value:+d.result};})
+                       .sort(function(a,b){return a.date-b.date;});
+    var minVal=d3.min(parsedData,function(d){return d.value;});
+    var maxVal=d3.max(parsedData,function(d){return d.value;});
+    var lowerBound=Math.min(0,minVal);
 
-    var minVal = d3.min(parsedData, function(d) { return d.value; });
-    var maxVal = d3.max(parsedData, function(d) { return d.value; });
-    var lowerBound = Math.min(0, minVal);
-
-    var svg = d3.select('#' + containerId)
-      .append('svg')
-      .attr('width', width + margin.left + margin.right)
-      .attr('height', height + margin.top + margin.bottom)
-      .attr('overflow', 'visible')
+    var svg=d3.select('#'+containerId).append('svg')
+      .attr('width',width+margin.left+margin.right)
+      .attr('height',height+margin.top+margin.bottom)
+      .attr('overflow','visible')
       .append('g')
-      .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+      .attr('transform','translate('+margin.left+','+margin.top+')');
 
-    var x = d3.scaleTime()
-      .domain(d3.extent(parsedData, function(d) { return d.date; }))
-      .range([0, width]);
+    var x=d3.scaleTime().domain(d3.extent(parsedData,function(d){return d.date;})).range([0,width]);
+    var formatDate=d3.timeFormat('%m/%d/%Y'),formatTime=d3.timeFormat('%H:%M:%S');
 
-    var formatDate = d3.timeFormat('%m/%d/%Y'),
-        formatTime = d3.timeFormat('%H:%M:%S');
-
-    var xAxis = svg.append('g')
-      .attr('transform', 'translate(0,' + height + ')')
-      .call(d3.axisBottom(x).ticks(4));
-
+    var xAxis=svg.append('g').attr('transform','translate(0,'+height+')').call(d3.axisBottom(x).ticks(4));
     xAxis.append('text')
-      .attr('fill', 'black')
-      .attr('x', width / 2)
-      .attr('y', margin.bottom)
-      .style('text-anchor', 'middle')
-      .text('Time (' + formatDate(x.domain()[0]) + ' - ' + formatDate(x.domain()[1]) + ')');
+      .attr('fill','black').attr('x',width/2).attr('y',margin.bottom)
+      .style('text-anchor','middle')
+      .text('Time ('+formatDate(x.domain()[0])+' - '+formatDate(x.domain()[1])+')');
 
-    var y = d3.scaleLinear()
-      .domain([lowerBound, maxVal])
-      .range([height, 0]);
+    var y=d3.scaleLinear().domain([lowerBound,maxVal]).range([height,0]);
+    svg.append('g').call(d3.axisLeft(y).ticks(4))
+      .append('text').attr('fill','black').attr('transform','rotate(-90)')
+      .attr('y',-45).attr('x',-height/2).style('text-anchor','middle').text(unitSymbol);
 
-    svg.append('g')
-      .call(d3.axisLeft(y).ticks(4))
-      .append('text')
-      .attr('fill', 'black')
-      .attr('transform', 'rotate(-90)')
-      .attr('y', -45)
-      .attr('x', -height / 2)
-      .style('text-anchor', 'middle')
-      .text(unitSymbol);
+    var line=d3.line().x(function(d){return x(d.date);}).y(function(d){return y(d.value);});
 
-    var line = d3.line()
-      .x(function(d) { return x(d.date); })
-      .y(function(d) { return y(d.value); });
-
-    if (rangeMin != null && rangeMax != null) {
-      for (var i = 1; i < parsedData.length; i++) {
-        var p0 = parsedData[i - 1];
-        var p1 = parsedData[i];
-        var in0 = p0.value >= rangeMin && p0.value <= rangeMax;
-        var in1 = p1.value >= rangeMin && p1.value <= rangeMax;
-
-        function drawSeg(a, b, inside) {
-          svg.append('path')
-            .datum([a, b])
-            .attr('fill', 'none')
-            .attr('stroke', inside ? '#007bff' : '#ff6961')
-            .attr('stroke-width', 1.5)
-            .attr('d', line);
+    if(rangeMin!=null&&rangeMax!=null){
+      for(var i=1;i<parsedData.length;i++){
+        var p0=parsedData[i-1],p1=parsedData[i];
+        var in0=p0.value>=rangeMin&&p0.value<=rangeMax;
+        var in1=p1.value>=rangeMin&&p1.value<=rangeMax;
+        function drawSeg(a,b,inside){
+          svg.append('path').datum([a,b]).attr('fill','none')
+            .attr('stroke',inside?'#007bff':'#ff6961').attr('stroke-width',1.5).attr('d',line);
         }
-
-        if (in0 === in1) {
-          drawSeg(p0, p1, in0);
-        } else {
-          var boundaryValue =
-            ((p0.value < rangeMin && p1.value > rangeMin) ||
-             (p0.value > rangeMin && p1.value < rangeMin)) ? rangeMin : rangeMax;
-          var t = (boundaryValue - p0.value) / (p1.value - p0.value);
-          var interDate = new Date(p0.date.getTime() +
-            t * (p1.date.getTime() - p0.date.getTime()));
-          var midPoint = { date: interDate, value: boundaryValue };
-          drawSeg(p0, midPoint, in0);
-          drawSeg(midPoint, p1, in1);
+        if(in0===in1){
+          drawSeg(p0,p1,in0);
+        }else{
+          var boundaryValue=((p0.value<rangeMin&&p1.value>rangeMin)||(p0.value>rangeMin&&p1.value<rangeMin))?rangeMin:rangeMax;
+          var t=(boundaryValue-p0.value)/(p1.value-p0.value);
+          var interDate=new Date(p0.date.getTime()+t*(p1.date.getTime()-p0.date.getTime()));
+          var midPoint={date:interDate,value:boundaryValue};
+          drawSeg(p0,midPoint,in0);drawSeg(midPoint,p1,in1);
         }
       }
-    } else {
-      svg.append('path')
-        .datum(parsedData)
-        .attr('fill', 'none')
-        .attr('stroke', '#0074D9')
-        .attr('stroke-width', 1.5)
-        .attr('d', line);
+    }else{
+      svg.append('path').datum(parsedData).attr('fill','none')
+        .attr('stroke','#0074D9').attr('stroke-width',1.5).attr('d',line);
     }
 
-    var focus = svg.append('g').style('display', 'none');
-    focus.append('rect')
-      .attr('x', 4).attr('y', -30).attr('width', 140).attr('height', 40)
-      .attr('fill', 'white').attr('stroke', '#ccc').attr('rx', 4).attr('ry', 4).attr('opacity', 0.9);
-    focus.append('circle').attr('r', 3).attr('fill', '#007bff');
-    focus.append('text').attr('font-size', '10px');
-
-    svg.append('rect')
-      .attr('width', width).attr('height', height)
-      .attr('fill', 'none').attr('pointer-events', 'all')
-      .on('mouseover', function() { focus.style('display', null); })
-      .on('mouseout',  function() { focus.style('display', 'none'); })
-      .on('mousemove', function() {
-        var bisect = d3.bisector(function(d) { return d.date; }).left;
-        var mx = d3.mouse(this)[0], x0 = x.invert(mx);
-        var i = bisect(parsedData, x0, 1), d0 = parsedData[i-1], d1 = parsedData[i] || d0;
-        var d = x0 - d0.date > d1.date - x0 ? d1 : d0;
-        focus.attr('transform', 'translate(' + x(d.date) + ',' + y(d.value) + ')');
+    var focus=svg.append('g').style('display','none');
+    focus.append('rect').attr('x',4).attr('y',-30).attr('width',140).attr('height',40)
+         .attr('fill','white').attr('stroke','#ccc').attr('rx',4).attr('ry',4).attr('opacity',0.9);
+    focus.append('circle').attr('r',3).attr('fill','#007bff');
+    focus.append('text').attr('font-size','10px');
+    svg.append('rect').attr('width',width).attr('height',height).attr('fill','none')
+      .attr('pointer-events','all')
+      .on('mouseover',function(){focus.style('display',null);})
+      .on('mouseout',function(){focus.style('display','none');})
+      .on('mousemove',function(){
+        var bisect=d3.bisector(function(d){return d.date;}).left;
+        var mx=d3.mouse(this)[0],x0=x.invert(mx);
+        var idx=bisect(parsedData,x0,1),d0=parsedData[idx-1],d1=parsedData[idx]||d0;
+        var d=x0-d0.date>d1.date-x0?d1:d0;
+        focus.attr('transform','translate('+x(d.date)+','+y(d.value)+')');
         focus.select('text').text('')
-          .append('tspan').attr('x', 8).attr('dy', '-1.5em')
-            .text('Time: ' + formatDate(d.date) + ' ' + formatTime(d.date))
-          .append('tspan').attr('x', 8).attr('dy', '1.5em')
-            .text('Value: ' + d.value + ' ' + unitSymbol);
+          .append('tspan').attr('x',8).attr('dy','-1.5em')
+          .text('Time: '+formatDate(d.date)+' '+formatTime(d.date))
+          .append('tspan').attr('x',8).attr('dy','1.5em')
+          .text('Value: '+d.value+' '+unitSymbol);
       });
 
-    d3.select('#' + containerId)
-      .insert('div', ':first-child')
-      .style('font-size', '12px').style('font-weight', 'bold')
-      .text(datastreamName);
+    d3.select('#'+containerId).insert('div',':first-child').style('font-size','12px')
+      .style('font-weight','bold').text(datastreamName);
   }
 
-  var thingsEndpoint =
-    BASE_URL + '/Projects(1)/Things' +
-    '?$expand=Locations,Datastreams($expand=ObservedProperty)';
-  var thingsContainer = document.getElementById('things-container');
+  var thingsEndpoint=BASE_URL+'/Projects(1)/Things?$expand=Locations,Datastreams($expand=ObservedProperty)';
+  var thingsContainer=document.getElementById('things-container');
 
-  function loadDatastreamsIntoTile(thing, datastreamsContainer) {
-    datastreamsContainer.innerHTML = '';
-    if (!thing.Datastreams) return;
-    thing.Datastreams.forEach(function(ds) {
-      var graphDiv = document.createElement('div');
+  function loadDatastreamsIntoTile(thing,datastreamsContainer){
+    datastreamsContainer.innerHTML='';
+    if(!thing.Datastreams)return;
+    thing.Datastreams.forEach(function(ds){
+      var graphDiv=document.createElement('div');
       graphDiv.classList.add('graph-container');
-      var graphDivId = 'graph-container-' + thing['@iot.id'] + '-' + ds['@iot.id'];
-      graphDiv.id = graphDivId;
+      var graphDivId='graph-container-'+thing['@iot.id']+'-'+ds['@iot.id'];
+      graphDiv.id=graphDivId;
       datastreamsContainer.appendChild(graphDiv);
 
-      apiFetch(
-        BASE_URL + '/Datastreams(' +
-        ds['@iot.id'] + ')/Observations?$orderby=phenomenonTime asc'
-      ).then(function(resp){ return resp.json(); })
-       .then(function(obsJson){
-        var obsData = obsJson.value || [];
-        if(!obsData.length) return;
-        var maxT = new Date(obsData[obsData.length-1].phenomenonTime);
-        var cutoff = new Date(maxT.getTime() - 24*60*60*1000);
-        var recent = obsData.filter(function(o){
-          return new Date(o.phenomenonTime) >= cutoff;
-        });
-        if(!recent.length) return;
-        var sym = (ds.unitOfMeasurement && ds.unitOfMeasurement.symbol) || '';
-        var dsName = (ds.ObservedProperty && ds.ObservedProperty.name) ||
-                     ds.name || 'Unknown';
-        var lv = recent[recent.length-1].result;
-        var rMin, rMax;
-        if(ds.properties && ds.properties.acceptableRange &&
-           ds.properties.acceptableRange.length === 2){
-          rMin = ds.properties.acceptableRange[0];
-          rMax = ds.properties.acceptableRange[1];
-          graphDiv.style.borderColor =
-            (lv >= rMin && lv <= rMax) ? '#007bff' : '#ff6961';
-        } else {
-          graphDiv.style.borderColor = '#007bff';
-        }
-        drawGraph(graphDivId, recent, dsName, sym, rMin, rMax);
-      }).catch(function(err){ console.error(err); });
+      apiFetch(BASE_URL+'/Datastreams('+ds['@iot.id']+')/Observations?$orderby=phenomenonTime asc')
+        .then(function(r){return r.json();})
+        .then(function(obsJson){
+          var obsData=obsJson.value||[];
+          if(!obsData.length)return;
+          var maxT=new Date(obsData[obsData.length-1].phenomenonTime);
+          var cutoff=new Date(maxT.getTime()-24*60*60*1000);
+          var recent=obsData.filter(function(o){return new Date(o.phenomenonTime)>=cutoff;});
+          if(!recent.length)return;
+          var sym=(ds.unitOfMeasurement&&ds.unitOfMeasurement.symbol)||'';
+          var dsName=(ds.ObservedProperty&&ds.ObservedProperty.name)||ds.name||'Unknown';
+          var lastVal=recent[recent.length-1].result;
+          var rMin,rMax;
+          if(ds.properties&&ds.properties.acceptableRange&&ds.properties.acceptableRange.length===2){
+            rMin=ds.properties.acceptableRange[0];rMax=ds.properties.acceptableRange[1];
+            graphDiv.style.borderColor=(lastVal>=rMin&&lastVal<=rMax)?'#007bff':'#ff6961';
+          }else{graphDiv.style.borderColor='#007bff';}
+          drawGraph(graphDivId,recent,dsName,sym,rMin,rMax);
+        }).catch(console.error);
     });
   }
 
-  function renderTiles(data) {
-    tileById = {};
-    thingsContainer.innerHTML = '';
+  function renderTiles(data){
+    tileById={};
+    thingsContainer.innerHTML='';
     data.forEach(function(thing){
-      var tile = document.createElement('div');
-      tile.className = 'thing-tile ' + (thing.properties.active ? 'active' : 'inactive');
-      var header = document.createElement('div');
-      header.className = 'tile-header';
-      header.textContent = thing.name;
-      var detail = document.createElement('div');
-      detail.className = 'tile-detail';
-      var lat = (thing.Locations && thing.Locations[0] &&
-                 thing.Locations[0].location.coordinates ?
-                 thing.Locations[0].location.coordinates[1] : 'Unknown');
-      var lon = (thing.Locations && thing.Locations[0] &&
-                 thing.Locations[0].location.coordinates ?
-                 thing.Locations[0].location.coordinates[0] : 'Unknown');
-      detail.innerHTML =
-        '<div><span class="popup-label">Active:</span> ' +
-        (thing.properties.active ? 'Yes' : 'No') + '</div>' +
-        '<div><span class="popup-label">Location:</span> ' +
-        ((thing.Locations && thing.Locations[0].name) || 'Unknown') + '</div>' +
-        '<div><span class="popup-label">Latitude:</span> ' + lat + '</div>' +
-        '<div><span class="popup-label">Longitude:</span> ' + lon + '</div>' +
-        '<div><span class="popup-label">Host:</span> ' +
-        (thing.properties.hostName || 'N/A') + '</div>' +
-        '<div><span class="popup-label">Description:</span> ' +
-        (thing.description || 'No description') + '</div>';
-      var btn = document.createElement('button');
-      btn.className = 'refresh-button';
-      btn.textContent = 'Load Data';
-      var used = false;
-      var dsCont = document.createElement('div');
-      dsCont.className = 'datastreams-container';
-      btn.addEventListener('click', function(){
-        loadDatastreamsIntoTile(thing, dsCont);
-        if(!used){ used = true; btn.textContent = 'Refresh Data'; }
+      var tile=document.createElement('div');
+      tile.className='thing-tile '+(thing.properties.active?'active':'inactive');
+      var header=document.createElement('div');
+      header.className='tile-header';
+      header.textContent=thing.name;
+      var detail=document.createElement('div');
+      detail.className='tile-detail';
+      var lat=(thing.Locations&&thing.Locations[0]&&thing.Locations[0].location.coordinates?
+               thing.Locations[0].location.coordinates[1]:'Unknown');
+      var lon=(thing.Locations&&thing.Locations[0]&&thing.Locations[0].location.coordinates?
+               thing.Locations[0].location.coordinates[0]:'Unknown');
+      detail.innerHTML=
+        '<div><span class="popup-label">Active:</span> '+(thing.properties.active?'Yes':'No')+'</div>'+
+        '<div><span class="popup-label">Location:</span> '+((thing.Locations&&thing.Locations[0].name)||'Unknown')+'</div>'+
+        '<div><span class="popup-label">Latitude:</span> '+lat+'</div>'+
+        '<div><span class="popup-label">Longitude:</span> '+lon+'</div>'+
+        '<div><span class="popup-label">Host:</span> '+(thing.properties.hostName||'N/A')+'</div>'+
+        '<div><span class="popup-label">Description:</span> '+(thing.description||'No description')+'</div>';
+      var btn=document.createElement('button');
+      btn.className='refresh-button';
+      btn.textContent='Load Data';
+      var used=false;
+      var dsCont=document.createElement('div');
+      dsCont.className='datastreams-container';
+      btn.addEventListener('click',function(){
+        loadDatastreamsIntoTile(thing,dsCont);
+        if(!used){used=true;btn.textContent='Refresh Data';}
       });
-      tile.append(header, detail, btn, dsCont);
+      tile.append(header,detail,btn,dsCont);
       thingsContainer.appendChild(tile);
-      tileById[thing['@iot.id']] = tile;
+      tileById[thing['@iot.id']]=tile;
     });
     updateTileVisibility();
   }
 
-  function fetchAndRenderThings() {
-    apiFetch(thingsEndpoint)
-      .then(function(r){ return r.json(); })
+  function fetchAndRenderThings(){
+    apiFetch(thingsEndpoint).then(function(r){return r.json();})
       .then(function(json){
-        var data = json.value || [];
-        if (MANAGER_FILTER) {
-          data = data.filter(function(t){
-            var mgrs = (t.properties && t.properties.managers) || [];
-            return mgrs.some(function(m){ return m.name === MANAGER_FILTER; });
+        var data=json.value||[];
+        if(MANAGER_FILTER){
+          data=data.filter(function(t){
+            var mgrs=(t.properties&&t.properties.managers)||[];
+            return mgrs.some(function(m){return m.name===MANAGER_FILTER;});
           });
         }
-        allThings = data;
+        data.sort(function(a,b){
+          var an=(a.name||'').toLowerCase(),bn=(b.name||'').toLowerCase();
+          return an.localeCompare(bn);
+        });
+        allThings=data;
         allTypes.clear();
         data.forEach(function(t){
-          if(t.properties && t.properties.thingTypes){
-            t.properties.thingTypes.forEach(function(tp){ allTypes.add(tp); });
+          if(t.properties&&t.properties.thingTypes){
+            t.properties.thingTypes.forEach(function(tp){allTypes.add(tp);});
           }
         });
         populateTypeFilter();
         renderTiles(data);
-      })
-      .catch(console.error);
+        /* restore search state */
+        if(initialTypeParam){document.getElementById('type-filter').value=initialTypeParam;}
+        if(document.getElementById('search-input').value||initialTypeParam){handleSearch();}
+      }).catch(console.error);
   }
 
-  function populateTypeFilter() {
-    var sel = document.getElementById('type-filter');
-    var current = sel.value;
-    sel.innerHTML = '<option value="">All Types</option>';
+  function populateTypeFilter(){
+    var sel=document.getElementById('type-filter');
+    var current=sel.value;
+    sel.innerHTML='<option value="">All Types</option>';
     Array.from(allTypes).sort().forEach(function(tp){
-      var opt = document.createElement('option');
-      opt.value = tp;
-      opt.textContent = tp;
-      sel.appendChild(opt);
+      var opt=document.createElement('option');opt.value=tp;opt.textContent=tp;sel.appendChild(opt);
     });
-    sel.value = current;
+    sel.value=current;
   }
 
-  function updateTileVisibility() {
-    var typeSel = document.getElementById('type-filter').value;
+  function updateTileVisibility(){
+    var typeSel=document.getElementById('type-filter').value;
     allThings.forEach(function(t){
-      var tile = tileById[t['@iot.id']];
-      if(!tile) return;
-      var show = !typeSel ||
-        (t.properties && t.properties.thingTypes &&
-         t.properties.thingTypes.includes(typeSel));
-      tile.style.display = show ? '' : 'none';
+      var tile=tileById[t['@iot.id']];if(!tile)return;
+      var show=!typeSel||(t.properties&&t.properties.thingTypes&&t.properties.thingTypes.includes(typeSel));
+      tile.style.display=show?'':'none';
     });
   }
 
-  fetchAndRenderThings();
+  var searchInput=document.getElementById('search-input'),
+      searchResults=document.getElementById('search-results'),
+      typeFilter=document.getElementById('type-filter');
 
-  var searchInput = document.getElementById('search-input'),
-      searchResults = document.getElementById('search-results'),
-      typeFilter = document.getElementById('type-filter');
+  function updateURLParams(query,typeSel){
+    var params=new URLSearchParams();
+    if(typeSel)params.set('type',typeSel);
+    if(query)params.set('q',query);
+    var newUrl=location.pathname+(params.toString()?'?'+params.toString():'');
+    history.replaceState(null,'',newUrl);
+  }
 
-  searchInput.addEventListener('input', handleSearch);
-  typeFilter.addEventListener('change', function(){
+  function handleSearch(){
     updateTileVisibility();
-    handleSearch();
-  });
-
-  function handleSearch() {
-    var q = searchInput.value.toLowerCase().trim();
-    var typeSel = typeFilter.value;
-    if(!q && !typeSel){
-      searchResults.innerHTML = '';
-      searchResults.style.display = 'none';
-      return;
+    var q=searchInput.value.toLowerCase().trim();
+    var typeSel=typeFilter.value;
+    updateURLParams(q,typeSel);
+    if(!q&&!typeSel){
+      searchResults.innerHTML='';searchResults.style.display='none';return;
     }
-    var filt = allThings.filter(function(t){
-      if(typeSel &&
-         !(t.properties && t.properties.thingTypes &&
-           t.properties.thingTypes.includes(typeSel))) {
-        return false;
-      }
-      if(!q) return true;
-      var nameMatch = t.name && t.name.toLowerCase().includes(q);
-      var descMatch = t.description && t.description.toLowerCase().includes(q);
-      var propMatch = false;
+    var filtered=allThings.filter(function(t){
+      if(typeSel&&!(t.properties&&t.properties.thingTypes&&t.properties.thingTypes.includes(typeSel)))return false;
+      if(!q)return true;
+      var nameMatch=t.name&&t.name.toLowerCase().includes(q);
+      var descMatch=t.description&&t.description.toLowerCase().includes(q);
+      var propMatch=false;
       if(t.properties){
-        propMatch = Object.keys(t.properties).some(function(k){
-          var v = t.properties[k];
-          var s = (Array.isArray(v) ? v.join(' ') : v).toString().toLowerCase();
+        propMatch=Object.keys(t.properties).some(function(k){
+          var v=t.properties[k];
+          var s=(Array.isArray(v)?v.join(' '):v).toString().toLowerCase();
           return s.includes(q);
         });
       }
-      return nameMatch || descMatch || propMatch;
+      return nameMatch||descMatch||propMatch;
     });
-    if(!filt.length){
-      searchResults.innerHTML = '<div class="search-item">No matches found</div>';
-      searchResults.style.display = 'block';
-    } else {
-      searchResults.innerHTML = filt.map(function(t){
-        return '<div class="search-item" data-id="' +
-               t['@iot.id'] + '">' + (t.name || 'No name') + '</div>';
+    if(!filtered.length){
+      searchResults.innerHTML='<div class="search-item">No matches found</div>';
+      searchResults.style.display='block';
+    }else{
+      searchResults.innerHTML=filtered.map(function(t){
+        return'<div class="search-item" data-id="'+t['@iot.id']+'">'+(t.name||'No name')+'</div>';
       }).join('');
-      searchResults.style.display = 'block';
+      searchResults.style.display='block';
     }
   }
 
-  searchResults.addEventListener('click', function(e){
-    if(e.target && e.target.classList.contains('search-item')){
-      var id = e.target.getAttribute('data-id');
-      var tile = tileById[id];
-      if(tile){
-        tile.scrollIntoView({behavior:'smooth', block:'start'});
-        tile.classList.add('highlight');
-        setTimeout(function(){ tile.classList.remove('highlight'); }, 1000);
-      }
-      searchResults.innerHTML = '';
-      searchResults.style.display = 'none';
-      searchInput.value = '';
+  searchInput.addEventListener('input',handleSearch);
+  typeFilter.addEventListener('change',function(){handleSearch();});
+  searchResults.addEventListener('click',function(e){
+    if(e.target&&e.target.classList.contains('search-item')){
+      var id=e.target.getAttribute('data-id');
+      var tile=tileById[id];
+      if(tile){tile.scrollIntoView({behavior:'smooth',block:'start'});}
+      searchResults.innerHTML='';searchResults.style.display='none';searchInput.value='';updateURLParams('',typeFilter.value);
     }
   });
+
+  /* ---------- legend button ---------- */
+  document.getElementById('info-btn').addEventListener('click',function(){
+    alert('Blue borders: Active values or in-range graphs\nRed borders: Inactive values or out-of-range graphs');
+  });
+
+  /* ---------- URL params on load ---------- */
+  window.addEventListener('DOMContentLoaded',function(){
+    var params=new URLSearchParams(location.search);
+    var q=params.get('q')||'';
+    initialTypeParam=params.get('type')||'';
+    if(q){document.getElementById('search-input').value=q;}
+  });
+
+  fetchAndRenderThings();
   </script>
 </body>
 </html>
